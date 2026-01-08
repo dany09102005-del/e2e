@@ -1,0 +1,14 @@
+[
+  {
+    "class_code": "CS101",
+    "day": "Monday",
+    "start": "09:00",
+    "end": "10:00"
+  },
+  {
+    "class_code": "CS101",
+    "day": "Tuesday",
+    "start": "09:00",
+    "end": "10:00"
+  }
+]

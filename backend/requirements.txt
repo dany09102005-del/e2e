@@ -1,0 +1,16 @@
+Flask>=2.0
+flask-cors
+numpy
+opencv-python
+pymongo>=3.11
+PyJWT
+werkzeug
+
+python-dotenv
+dlib
+face_recognition
+imutils
+Pillow
+# face_recognition_models is required by `face_recognition` - install via git
+# pip install git+https://github.com/ageitgey/face_recognition_models
+

@@ -1,0 +1,7 @@
+[
+  {
+    "username": "admin",
+    "password_hash": "pbkdf2:sha256:260000$ZmVhtmock$placeholder",
+    "role": "Admin"
+  }
+]
