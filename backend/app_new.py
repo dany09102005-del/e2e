@@ -416,7 +416,7 @@ def match_student():
             return jsonify({'success': True, 'match': None, 'confidence': similarity, 'error': 'Student not found in DB.'}), 200
 
         # Decide match threshold: LBPH lower is better. Use 0.45 for strict matching.
-        LBPH_THRESHOLD = float(os.environ.get('LBPH_THRESHOLD', '45.0'))
+        LBPH_THRESHOLD = float(os.environ.get('LBPH_THRESHOLD', '50.0'))
         is_match = best_conf < LBPH_THRESHOLD
 
         if is_match:
