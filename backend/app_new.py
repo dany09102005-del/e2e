@@ -16,6 +16,7 @@ from dotenv import load_dotenv
 import cv2
 import numpy as np
 from pymongo import MongoClient
+import json
 
 app = Flask(__name__)
 CORS(app)
@@ -25,10 +26,28 @@ load_dotenv((Path(__file__).parent / '.env'))
 
 # Configuration
 ROOT = Path(__file__).parent
-STORAGE = ROOT / 'storage'
+# Separate storage folders to keep training and test data distinct
+# See: https://en.wikipedia.org/wiki/Training,_validation,_and_test_sets
+# storage/training  -> registered student face images (used to train LBPH model)
+# storage/uploads   -> images captured during bunk checking (used for matching)
+STORAGE_TRAINING = ROOT / 'storage' / 'training'
+STORAGE_UPLOADS = ROOT / 'storage' / 'uploads'
+MODEL_PATH = ROOT / 'model.yml'
+LABELS_PATH = ROOT / 'labels.json'
+HAAR_CASCADE_PATH = cv2.data.haarcascades + 'haarcascade_frontalface_default.xml'
 DESIGN_DIR = ROOT.parent / 'ui_[pics'
 ALLOWED = {'png', 'jpg', 'jpeg'}
 SECRET = os.environ.get('APP_SECRET', 'dev-secret-key-change-in-prod')
+
+# Ensure both storage folders exist on startup
+def init_storage():
+    """Create storage folders if they do not exist."""
+    try:
+        STORAGE_TRAINING.mkdir(parents=True, exist_ok=True)
+        STORAGE_UPLOADS.mkdir(parents=True, exist_ok=True)
+        print(f"✓ Storage initialized: {STORAGE_TRAINING.parent}")
+    except Exception as e:
+        print(f"✗ Failed to initialize storage: {e}")
 
 # MongoDB Connection
 MONGO_URL = os.environ.get('MONGO_URL', 'mongodb://localhost:27017/')
@@ -41,6 +60,9 @@ try:
 except Exception as e:
     print(f"✗ MongoDB connection error: {e}")
     db = None
+
+# Initialize storage folders
+init_storage()
 
 
 def get_db():
@@ -56,44 +78,115 @@ def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED
 
 
-def image_to_embedding(image_path):
-    """Extract face embedding from image using face_recognition"""
+def image_bytes_to_embedding(image_bytes):
+    """Convert raw image bytes to a simple OpenCV-based embedding.
+
+    Steps (robust, no external models):
+    - Decode bytes with `cv2.imdecode` (safe)
+    - Convert to grayscale
+    - Resize to 64x64
+    - Flatten and normalize to unit vector (float32)
+    Returns list[float] or None on failure.
+    """
     try:
-        import face_recognition
-        image = face_recognition.load_image_file(str(image_path))
-        encodings = face_recognition.face_encodings(image)
-        if encodings:
-            return encodings[0].tolist()
-        return None
-    except Exception:
-        # Fallback: OpenCV based simple feature extraction
-        try:
-            img = cv2.imread(str(image_path))
-            if img is None:
-                return None
-            gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-            small = cv2.resize(gray, (64, 64))
-            return small.flatten().astype('float32').tolist()
-        except Exception:
+        if not image_bytes:
             return None
+        arr = np.frombuffer(image_bytes, dtype=np.uint8)
+        img = cv2.imdecode(arr, cv2.IMREAD_COLOR)
+        if img is None:
+            return None
+        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        small = cv2.resize(gray, (64, 64))
+        emb = small.astype('float32').flatten()
+        norm = np.linalg.norm(emb)
+        if norm > 1e-8:
+            emb = emb / norm
+        return emb.tolist()
+    except Exception:
+        return None
+
+
+def image_to_embedding(image_source):
+    """Wrapper: accept bytes or a filesystem path and return embedding using OpenCV-only pipeline."""
+    try:
+        # If bytes-like
+        if isinstance(image_source, (bytes, bytearray)):
+            return image_bytes_to_embedding(image_source)
+        # Otherwise treat as path-like
+        with open(str(image_source), 'rb') as fh:
+            return image_bytes_to_embedding(fh.read())
+    except Exception:
+        return None
 
 
 def compare_embeddings(emb1, emb2):
-    """Compare two embeddings and return similarity score (0-1)"""
-    if not emb1 or not emb2:
-        return 0.0
-    
+    """Compare two embeddings using cosine similarity. Returns float in [-1,1].
+
+    If shapes mismatch or values invalid, returns 0.0.
+    """
     try:
-        import face_recognition
-        # Use face_recognition distance if available
-        dist = face_recognition.face_distance([emb1], emb2)[0]
-        return float(1.0 - dist)
-    except Exception:
-        # Fallback: cosine similarity
-        a, b = np.array(emb1), np.array(emb2)
-        if a.shape != b.shape:
+        if emb1 is None or emb2 is None:
             return 0.0
-        return float(np.dot(a, b) / (np.linalg.norm(a) * np.linalg.norm(b) + 1e-5))
+        a = np.array(emb1, dtype='float32')
+        b = np.array(emb2, dtype='float32')
+        if a.size == 0 or b.size == 0 or a.shape != b.shape:
+            return 0.0
+        denom = (np.linalg.norm(a) * np.linalg.norm(b) + 1e-8)
+        return float(np.dot(a, b) / denom)
+    except Exception:
+        return 0.0
+
+
+# --- LBPH face recognizer utilities (OpenCV-only) ---
+def get_haar_detector():
+    """Return a Haar Cascade classifier for face detection. Safe to call repeatedly."""
+    try:
+        return cv2.CascadeClassifier(HAAR_CASCADE_PATH)
+    except Exception:
+        return None
+
+
+def load_lbph_recognizer():
+    """Load LBPH recognizer and labels mapping if present. Returns (recognizer, labels_map) or (None, {})."""
+    try:
+        # LBPH is in cv2.face (opencv-contrib). Guard against missing contrib.
+        recognizer = None
+        if hasattr(cv2, 'face') and hasattr(cv2.face, 'LBPHFaceRecognizer_create'):
+            recognizer = cv2.face.LBPHFaceRecognizer_create()
+        else:
+            # Try older API lookup
+            recognizer = getattr(cv2, 'LBPHFaceRecognizer_create', None)
+            if recognizer:
+                recognizer = recognizer()
+        if recognizer is None:
+            print('LBPH recognizer not available in this OpenCV build (requires opencv-contrib-python).')
+            return None, {}
+
+        if MODEL_PATH.exists():
+            recognizer.read(str(MODEL_PATH))
+        labels_map = {}
+        if LABELS_PATH.exists():
+            try:
+                with open(LABELS_PATH, 'r') as fh:
+                    labels_map = json.load(fh)
+            except Exception:
+                labels_map = {}
+        return recognizer, labels_map
+    except Exception as e:
+        print('Error loading LBPH recognizer:', e)
+        return None, {}
+
+
+# lazy-loaded recognizer and labels
+_LBPH = None
+_LABELS = {}
+
+def ensure_recognizer():
+    global _LBPH, _LABELS
+    if _LBPH is None:
+        _LBPH, _LABELS = load_lbph_recognizer()
+    return _LBPH is not None
+
 
 
 # === AUTH ROUTES ===
@@ -180,6 +273,11 @@ def get_student(student_id):
 @app.route('/students', methods=['POST'])
 @token_required
 def add_student():
+    """Register a new student with a face image for training.
+    
+    Image is saved to storage/training/ folder.
+    This training data is later used to train the LBPH recognizer.
+    """
     db = get_db()
     data = request.form.to_dict()
     file = request.files.get('image')
@@ -187,16 +285,22 @@ def add_student():
     if not data.get('student_id'):
         return jsonify({'error': 'student_id required'}), 400
     
-    STORAGE.mkdir(parents=True, exist_ok=True)
-    
     filename = None
     embedding = None
     
     if file and allowed_file(file.filename):
+        # Save to training folder for LBPH model training
         filename = secure_filename(f"{data.get('student_id')}_{file.filename}")
-        path = STORAGE / filename
-        file.save(path)
-        embedding = image_to_embedding(path)
+        path = STORAGE_TRAINING / filename
+        # Read bytes safely, compute embedding with OpenCV, then save
+        file_bytes = file.read()
+        embedding = image_to_embedding(file_bytes)
+        try:
+            with open(path, 'wb') as ofh:
+                ofh.write(file_bytes)
+        except Exception:
+            # If save fails, continue without file but keep embedding if available
+            print(f"Warning: failed to save student image to {path}")
     
     student_doc = {
         'student_id': data.get('student_id'),
@@ -220,61 +324,126 @@ def add_student():
 # === MATCHING & DETECTION ===
 @app.route('/match', methods=['POST'])
 def match_student():
-    file = request.files.get('image')
-    if not file or not allowed_file(file.filename):
-        return jsonify({'error': 'Image required (png/jpg/jpeg)'}), 400
+    """Match captured image against trained LBPH model.
     
-    location = request.form.get('location', 'Unknown')
-    
-    STORAGE.mkdir(parents=True, exist_ok=True)
-    filename = secure_filename(f"capture_{datetime.datetime.now().timestamp()}_{file.filename}")
-    path = STORAGE / filename
-    file.save(path)
-    
-    # Extract embedding from captured image
-    captured_emb = image_to_embedding(path)
-    if not captured_emb:
-        return jsonify({'match': None, 'confidence': 0.0, 'error': 'No face detected'}), 200
-    
-    # Search in MongoDB
-    db = get_db()
-    students = list(db.students.find({'embedding': {'$ne': None}}))
-    
-    best_match = None
-    best_score = 0.0
-    
-    for student in students:
-        if not student.get('embedding'):
-            continue
-        score = compare_embeddings(captured_emb, student['embedding'])
-        if score > best_score:
-            best_score = score
-            best_match = student
-    
-    threshold = 0.5
-    if best_match and best_score >= threshold:
-        # Update bunk count
-        db.students.update_one(
-            {'_id': best_match['_id']},
-            {'$inc': {'bunk_count': 1}, '$set': {'updated_at': datetime.datetime.now()}}
-        )
-        
-        # Record violation
-        violation = {
-            'student_id': best_match['student_id'],
-            'student_name': best_match['name'],
-            'dept': best_match['dept'],
-            'location': location,
-            'timestamp': datetime.datetime.now(),
-            'confidence': float(best_score),
-            'image': filename
-        }
-        db.violations.insert_one(violation)
-        
-        best_match['_id'] = str(best_match['_id'])
-        return jsonify({'match': best_match, 'confidence': best_score})
-    
-    return jsonify({'match': None, 'confidence': best_score})
+    Image is saved to storage/uploads/ folder.
+    This test data is used only for matching and reporting, never for training.
+    Keeping training and test data separate ensures model accuracy and prevents overfitting.
+    """
+    # Match using OpenCV LBPH recognizer with Haar face detection.
+    # Always return JSON and never crash.
+    try:
+        file = request.files.get('image')
+        if not file or not allowed_file(file.filename):
+            return jsonify({'success': False, 'error': 'Image required (png/jpg/jpeg)'}), 400
+
+        location = request.form.get('location', 'Unknown')
+
+        file_bytes = file.read()
+        filename = secure_filename(f"capture_{datetime.datetime.now().timestamp()}_{file.filename}")
+        # Save to uploads folder for audit trail and reporting
+        path = STORAGE_UPLOADS / filename
+        try:
+            with open(path, 'wb') as ofh:
+                ofh.write(file_bytes)
+        except Exception:
+            print(f"Warning: failed to save capture to {path}")
+
+        # Decode image bytes safely
+        arr = np.frombuffer(file_bytes, dtype=np.uint8)
+        img = cv2.imdecode(arr, cv2.IMREAD_COLOR)
+        if img is None:
+            return jsonify({'success': True, 'match': None, 'confidence': None, 'error': 'Could not decode image.'}), 200
+
+        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+
+        # Detect faces using Haar Cascade
+        detector = get_haar_detector()
+        if detector is None:
+            return jsonify({'success': False, 'error': 'Haar Cascade not available on server.'}), 500
+
+        faces = detector.detectMultiScale(gray, scaleFactor=1.1, minNeighbors=5)
+        if len(faces) == 0:
+            return jsonify({'success': True, 'match': None, 'confidence': None, 'error': 'No face detected.'}), 200
+
+        # Ensure recognizer is loaded
+        if not ensure_recognizer():
+            return jsonify({'success': False, 'error': 'LBPH recognizer not available or not trained.'}), 500
+
+        # For LBPH, lower confidence means better match. We'll pick smallest confidence.
+        best = None
+        best_conf = float('inf')
+        best_label = None
+
+        for (x, y, w, h) in faces:
+            face = gray[y:y+h, x:x+w]
+            try:
+                face_resized = cv2.resize(face, (200, 200))
+            except Exception:
+                continue
+
+            try:
+                label, conf = _LBPH.predict(face_resized)
+            except Exception as e:
+                # If prediction fails, skip this face
+                print('LBPH predict error:', e)
+                continue
+
+            # track best (smallest) confidence
+            if conf < best_conf:
+                best_conf = float(conf)
+                best_label = str(label)
+                best = {'label': label, 'confidence': float(conf), 'rect': [int(x), int(y), int(w), int(h)]}
+
+        # No successful prediction
+        if best is None or best_label is None:
+            return jsonify({'success': True, 'match': None, 'confidence': None, 'error': 'No recognizer prediction.'}), 200
+
+        # Map label to student_id using labels file
+        student_id = _LABELS.get(best_label)
+        if not student_id:
+            return jsonify({'success': True, 'match': None, 'confidence': best_conf, 'error': 'Unknown label.'}), 200
+
+        # Lookup student in DB
+        db = get_db()
+        student = db.students.find_one({'student_id': student_id})
+        if not student:
+            return jsonify({'success': True, 'match': None, 'confidence': best_conf, 'error': 'Student not found in DB.'}), 200
+
+        # Decide match threshold: LBPH lower is better. Typical thresholds: 50-100.
+        LBPH_THRESHOLD = float(os.environ.get('LBPH_THRESHOLD', '80.0'))
+        is_match = best_conf < LBPH_THRESHOLD
+
+        if is_match:
+            try:
+                db.students.update_one({'_id': student['_id']}, {'$inc': {'bunk_count': 1}, '$set': {'updated_at': datetime.datetime.now()}})
+            except Exception:
+                pass
+            violation = {
+                'student_id': student.get('student_id'),
+                'student_name': student.get('name'),
+                'dept': student.get('dept'),
+                'location': location,
+                'timestamp': datetime.datetime.now(),
+                'confidence': best_conf,
+                'image': filename
+            }
+            try:
+                db.violations.insert_one(violation)
+            except Exception:
+                print('Warning: failed to insert violation record')
+
+            student['_id'] = str(student['_id'])
+            return jsonify({'success': True, 'matched': True, 'student': student, 'confidence': best_conf})
+
+        # Not a confident match
+        return jsonify({'success': True, 'matched': False, 'student': None, 'confidence': best_conf})
+
+    except Exception as e:
+        print(f"Match error: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({'success': False, 'error': 'Server error during matching', 'detail': str(e)}), 500
 
 
 # === VIOLATIONS & REPORTS ===
@@ -300,7 +469,19 @@ def get_timetable():
 # === FILE SERVING ===
 @app.route('/storage/<path:filename>')
 def serve_storage(filename):
-    return send_from_directory(STORAGE, filename)
+    # Serve files from storage/training or storage/uploads depending on where the file exists.
+    # This preserves backward compatibility with earlier flat `storage/` URLs.
+    try:
+        train_path = STORAGE_TRAINING / filename
+        upload_path = STORAGE_UPLOADS / filename
+        if train_path.exists():
+            return send_from_directory(STORAGE_TRAINING, filename)
+        if upload_path.exists():
+            return send_from_directory(STORAGE_UPLOADS, filename)
+        return jsonify({'error': 'file not found'}), 404
+    except Exception as e:
+        print(f"serve_storage error: {e}")
+        return jsonify({'error': 'internal server error'}), 500
 
 
 @app.route('/design/<path:filename>')

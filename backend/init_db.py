@@ -18,7 +18,8 @@ except Exception:
 
 MONGO_URL = os.environ.get('MONGO_URL', 'mongodb://localhost:27017/')
 DB_NAME = 'attendguard'
-STORAGE = Path(__file__).parent / 'storage'
+# Demo student images are saved to training folder (they will be used to train LBPH)
+STORAGE_TRAINING = Path(__file__).parent / 'storage' / 'training'
 
 # Demo student data
 DEMO_STUDENTS = [
@@ -97,8 +98,9 @@ def init_db():
     db.timetable.delete_many({})
     db.users.delete_many({})
     
-    # Create storage directory
-    STORAGE.mkdir(parents=True, exist_ok=True)
+    # Create storage/training directory for demo student images
+    # These images will be used to train the LBPH recognizer
+    STORAGE_TRAINING.mkdir(parents=True, exist_ok=True)
     
     print("📚 Initializing demo students...")
     
@@ -107,9 +109,9 @@ def init_db():
         # Generate synthetic face image
         img = generate_sample_face(student_data['name'], student_data['student_id'])
         
-        # Save image
+        # Save image to training folder
         image_filename = f"{student_data['student_id']}_demo.jpg"
-        image_path = STORAGE / image_filename
+        image_path = STORAGE_TRAINING / image_filename
         cv2.imwrite(str(image_path), img)
         
         # Extract embedding

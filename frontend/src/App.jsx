@@ -351,11 +351,14 @@ function DetectPage({ onDetect }) {
     fd.append('image', file)
     fd.append('location', location)
     try {
-      const res = await axios.post(`${API}/match`, fd)
+      const res = await axios.post(`${API}/match`, fd, {
+        headers: { 'Content-Type': 'multipart/form-data' }
+      })
       setResult(res.data)
       onDetect()
     } catch (err) {
-      alert('Error matching image')
+      console.error('Match error:', err.response?.data || err.message)
+      alert(`Error: ${err.response?.data?.error || 'Failed to match image'}`)
     }
   }
 
