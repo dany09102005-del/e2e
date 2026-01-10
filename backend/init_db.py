@@ -3,6 +3,7 @@
 Initialize MongoDB with demo data and sample student images
 """
 import os
+import sys
 from pathlib import Path
 import cv2
 import numpy as np
@@ -10,11 +11,7 @@ from pymongo import MongoClient
 from datetime import datetime
 
 # face_recognition is optional in this environment (requires dlib/CMake).
-# Import if available and fall back gracefully.
-try:
-    import face_recognition
-except Exception:
-    face_recognition = None
+# Skip importing to avoid issues; just use fallback embedding
 
 MONGO_URL = os.environ.get('MONGO_URL', 'mongodb://localhost:27017/')
 DB_NAME = 'attendguard'
@@ -72,19 +69,12 @@ def generate_sample_face(name_str, student_id):
 
 def extract_embedding(image):
     """Extract embedding from image"""
-    try:
-        # Try using face_recognition if available
-        if face_recognition is not None:
-            encodings = face_recognition.face_encodings(image)
-            if encodings:
-                return encodings[0].tolist()
-    except Exception:
-        pass
-    
-    # Fallback: simple feature extraction
+    # Using fallback: simple feature extraction with OpenCV
+    # (face_recognition would require dlib/CMake which is problematic)
     gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
     small = cv2.resize(gray, (64, 64))
     return small.flatten().astype('float32').tolist()
+
 
 
 def init_db():
@@ -104,34 +94,56 @@ def init_db():
     
     print("📚 Initializing demo students...")
     
-    # Insert students with generated images
+    # Insert students with generated images in per-student subdirectories
     for i, student_data in enumerate(DEMO_STUDENTS):
-        # Generate synthetic face image
-        img = generate_sample_face(student_data['name'], student_data['student_id'])
+        student_id = student_data['student_id']
         
-        # Save image to training folder
-        image_filename = f"{student_data['student_id']}_demo.jpg"
-        image_path = STORAGE_TRAINING / image_filename
-        cv2.imwrite(str(image_path), img)
+        # Create per-student subdirectory: storage/training/<student_id>/
+        student_dir = STORAGE_TRAINING / student_id
+        student_dir.mkdir(parents=True, exist_ok=True)
         
-        # Extract embedding
-        embedding = extract_embedding(img)
+        # Generate and save 3+ demo images per student (multiple angles/expressions)
+        # This improves LBPH training robustness significantly
+        image_names = []
+        embeddings = []
+        
+        for angle_idx, angle_name in enumerate(['front', 'left', 'right']):
+            # Generate synthetic face image with slight variation per angle
+            img = generate_sample_face(student_data['name'], student_id)
+            
+            # Add slight variation (rotation, brightness) to simulate different angles
+            M = cv2.getRotationMatrix2D((112, 112), angle_idx * 15 - 15, 1.0)
+            img = cv2.warpAffine(img, M, (224, 224), borderValue=(240, 240, 240))
+            
+            # Save image with semantic name: front.jpg, left.jpg, right.jpg, etc.
+            image_filename = f"{angle_name}.jpg"
+            image_path = student_dir / image_filename
+            cv2.imwrite(str(image_path), img)
+            
+            # Extract embedding from first image only for DB (backward compat)
+            if angle_idx == 0:
+                embedding = extract_embedding(img)
+                embeddings.append(embedding)
+            
+            image_names.append(image_filename)
         
         student_doc = {
-            'student_id': student_data['student_id'],
+            'student_id': student_id,
             'name': student_data['name'],
             'dept': student_data['dept'],
             'year': student_data['year'],
             'mobile': student_data['mobile'],
-            'image': image_filename,
-            'embedding': embedding,
+            'image_dir': str(student_dir),  # reference to subdirectory
+            'images': image_names,  # list of saved images
+            'image': image_names[0] if image_names else None,  # first image for backward compat
+            'embedding': embeddings[0] if embeddings else None,
             'bunk_count': 0,
             'created_at': datetime.now(),
             'updated_at': datetime.now()
         }
         
         db.students.insert_one(student_doc)
-        print(f"  ✓ {student_data['student_id']} - {student_data['name']}")
+        print(f"  ✓ {student_id} - {student_data['name']} ({len(image_names)} images)")
     
     print("\n📅 Initializing timetable...")
     for t in TIMETABLE:

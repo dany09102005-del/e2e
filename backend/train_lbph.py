@@ -138,15 +138,22 @@ def detect_and_prepare_face(img_path, scale=1.1, minNeighbors=7, minSize=(80, 80
 def gather_training_data(db):
     """Collect training images and labels from storage/training using students collection.
     
+    NEW STRUCTURE (Multi-angle registration):
+    - Reads from: storage/training/<student_id>/{front.jpg, left.jpg, right.jpg, smile.jpg, ...}
+    - Multiple images per student for training robustness (different angles/expressions)
+    
+    BACKWARD COMPATIBILITY:
+    - Still reads flat structure: storage/training/<student_id>_*.jpg (old format)
+    - Supports single image field in DB for existing students
+    
     QUALITY REQUIREMENTS:
-    - Ideally require minimum 2 training images per student for robust learning
-    - For demo/test: accept 1+ images (real production should require 2+)
+    - Require minimum 3 images per student (3+ angles improves LBPH robustness significantly)
+    - For demo/test: can lower to 1+ via MIN_TRAINING_IMAGES env var
     - Reject images with 0 or >1 face (accept only clear, unambiguous faces)
     - Only use images with exactly one clear face (via detect_and_prepare_face)
     
     This ensures the model learns meaningful patterns in face appearance
-    rather than memorizing a single image. Production deployments should
-    enforce the 2+ image requirement strictly.
+    across different angles, rather than memorizing a single image.
     
     IMPORTANT: Only reads from STORAGE_TRAINING folder (registered student images).
     Never includes images from storage/uploads (captured violation images).
@@ -161,23 +168,33 @@ def gather_training_data(db):
     students_processed = 0
     students_skipped = 0
     
-    # For production, set to 2; for demo, set to 1
-    MIN_IMAGES_PER_STUDENT = int(os.environ.get('MIN_TRAINING_IMAGES', '1'))
+    # For production, set to 3+ for multi-angle robustness; for demo, can use 1
+    MIN_IMAGES_PER_STUDENT = int(os.environ.get('MIN_TRAINING_IMAGES', '3'))
 
     for s in students:
         sid = s.get('student_id')
         if not sid:
             continue
         
-        # find files in STORAGE_TRAINING starting with sid + '_'
-        matches = list(STORAGE_TRAINING.glob(f"{sid}_*"))
-        # also include single image field if present (stored without prefix)
-        img_field = s.get('image')
-        if img_field:
-            # Image path stored in DB should refer to training images.
-            p = STORAGE_TRAINING / img_field
-            if p.exists() and p not in matches:
-                matches.append(p)
+        # Check for NEW structure: storage/training/<student_id>/ subdirectory
+        student_subdir = STORAGE_TRAINING / sid
+        matches = []
+        
+        if student_subdir.is_dir():
+            # NEW: read all images from per-student subdirectory
+            matches = list(student_subdir.glob('*'))
+        
+        # BACKWARD COMPATIBILITY: also check for flat structure storage/training/<student_id>_*
+        if not matches:
+            matches = list(STORAGE_TRAINING.glob(f"{sid}_*"))
+        
+        # Also check single image field in DB if present (old format)
+        if not matches:
+            img_field = s.get('image')
+            if img_field:
+                p = STORAGE_TRAINING / img_field
+                if p.exists():
+                    matches = [p]
 
         if not matches:
             continue
