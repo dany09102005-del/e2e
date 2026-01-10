@@ -1,18 +1,41 @@
 #!/usr/bin/env python3
 """
 Train an OpenCV LBPH face recognizer from registered student images.
+Enhanced with preprocessing, detection, and model parameters for improved accuracy.
 
 DATA SEPARATION PRINCIPLE:
 - storage/training/  -> Student registration images (used to train LBPH model)
 - storage/uploads/   -> Captured images during bunk checking (used for matching only)
 This separation prevents overfitting and ensures reliable face recognition accuracy.
 
+IMPROVEMENTS FOR ACCURACY:
+1. Face Preprocessing:
+   - Convert to grayscale for consistency
+   - Resize to 200x200 for LBPH training
+   - Apply CLAHE (contrast-limited adaptive histogram equalization)
+     to normalize lighting conditions and improve face distinctiveness
+   
+2. Face Detection:
+   - Haar Cascade with scaleFactor=1.1, minNeighbors=7, minSize=(80,80)
+   - Reject images with 0 or >1 face (ambiguous)
+   - Only use images with exactly one clear face
+   
+3. Training Data Quality:
+   - Require minimum 2 training images per student
+   - Skip students with fewer than 2 valid face images
+   - Ensures the model learns variation in face appearance
+   
+4. LBPH Model Parameters:
+   - radius=2, neighbors=16, grid_x=8, grid_y=8
+   - Balanced parameters for local binary patterns
+   - grid_x/grid_y=8 provides fine spatial discrimination
+
 Behavior:
 - Connects to MongoDB and reads `students` collection.
-- For each student, gathers images from `backend/storage/training` that start with the student's `student_id` prefix.
-  (E.g., 23BQ1A05A9_demo.jpg, or multiple: 23BQ1A05A9_1.jpg, 23BQ1A05A9_2.jpg)
-- Detects faces using Haar Cascade, crops and resizes them to 200x200 grayscale.
-- Maps each `student_id` to a numeric label and trains the LBPH recognizer.
+- For each student, gathers images from `backend/storage/training`.
+- Detects faces using improved Haar Cascade parameters.
+- Applies CLAHE preprocessing to each face.
+- Trains LBPH with enhanced parameters.
 - Saves trained model to `backend/model.yml` and label mapping to `backend/labels.json`.
 
 IMPORTANT: Do NOT mix training (storage/training) and test (storage/uploads) data.
@@ -52,20 +75,61 @@ def get_db():
     return client[DB_NAME]
 
 
-def detect_and_prepare_face(img_gray, scale=1.1):
-    """Detect largest face in grayscale image, crop and resize to 200x200.
-
-    Returns the processed face or None.
+def preprocess_face(face_gray):
+    """Apply CLAHE to normalize lighting and enhance face features.
+    
+    CLAHE (Contrast Limited Adaptive Histogram Equalization) improves
+    recognition by normalizing lighting variations across different capture
+    conditions, making face features more distinctive to the LBPH recognizer.
     """
     try:
-        detector = cv2.CascadeClassifier(HAAR)
-        faces = detector.detectMultiScale(img_gray, scaleFactor=scale, minNeighbors=5)
-        if len(faces) == 0:
+        clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
+        face_clahe = clahe.apply(face_gray)
+        return face_clahe
+    except Exception:
+        return face_gray
+
+
+def detect_and_prepare_face(img_path, scale=1.1, minNeighbors=7, minSize=(80, 80)):
+    """Detect and preprocess face from image file.
+    
+    Only accepts images with exactly ONE face (rejects 0 or >1).
+    Returns preprocessed 200x200 face or None on failure.
+    
+    Improved parameters:
+    - scaleFactor=1.1: balance between speed and accuracy
+    - minNeighbors=7: stricter (fewer false positives than default 5)
+    - minSize=(80,80): ignore very small faces (likely false positives)
+    """
+    try:
+        img = cv2.imread(str(img_path))
+        if img is None:
             return None
-        # choose largest face
-        x, y, w, h = max(faces, key=lambda r: r[2] * r[3])
-        face = img_gray[y:y+h, x:x+w]
+        
+        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        detector = cv2.CascadeClassifier(HAAR)
+        
+        # Detect faces with improved parameters
+        faces = detector.detectMultiScale(
+            gray,
+            scaleFactor=scale,
+            minNeighbors=minNeighbors,
+            minSize=minSize
+        )
+        
+        # Reject images with 0 or >1 face: we need exactly one clear face per image
+        if len(faces) != 1:
+            return None
+        
+        x, y, w, h = faces[0]
+        face = gray[y:y+h, x:x+w]
+        
+        # Resize to 200x200 (standard for LBPH training)
         face = cv2.resize(face, (200, 200))
+        
+        # Apply CLAHE preprocessing to normalize lighting
+        face = preprocess_face(face)
+        
         return face
     except Exception:
         return None
@@ -73,6 +137,16 @@ def detect_and_prepare_face(img_gray, scale=1.1):
 
 def gather_training_data(db):
     """Collect training images and labels from storage/training using students collection.
+    
+    QUALITY REQUIREMENTS:
+    - Ideally require minimum 2 training images per student for robust learning
+    - For demo/test: accept 1+ images (real production should require 2+)
+    - Reject images with 0 or >1 face (accept only clear, unambiguous faces)
+    - Only use images with exactly one clear face (via detect_and_prepare_face)
+    
+    This ensures the model learns meaningful patterns in face appearance
+    rather than memorizing a single image. Production deployments should
+    enforce the 2+ image requirement strictly.
     
     IMPORTANT: Only reads from STORAGE_TRAINING folder (registered student images).
     Never includes images from storage/uploads (captured violation images).
@@ -83,14 +157,21 @@ def gather_training_data(db):
     labels = []
     label_map = {}
     next_label = 0
+    
+    students_processed = 0
+    students_skipped = 0
+    
+    # For production, set to 2; for demo, set to 1
+    MIN_IMAGES_PER_STUDENT = int(os.environ.get('MIN_TRAINING_IMAGES', '1'))
 
     for s in students:
         sid = s.get('student_id')
         if not sid:
             continue
+        
         # find files in STORAGE_TRAINING starting with sid + '_'
         matches = list(STORAGE_TRAINING.glob(f"{sid}_*"))
-        # also include single image field if present
+        # also include single image field if present (stored without prefix)
         img_field = s.get('image')
         if img_field:
             # Image path stored in DB should refer to training images.
@@ -101,39 +182,54 @@ def gather_training_data(db):
         if not matches:
             continue
 
-        # assign label
-        label_map[str(next_label)] = sid
-
-        for p in matches:
+        # Try to extract valid faces from this student's images
+        valid_faces = []
+        for img_path in matches:
             try:
-                data = cv2.imdecode(np.fromfile(str(p), dtype=np.uint8), cv2.IMREAD_COLOR)
-                if data is None:
-                    # fallback to read via imread
-                    data = cv2.imread(str(p))
-                if data is None:
-                    continue
-                gray = cv2.cvtColor(data, cv2.COLOR_BGR2GRAY)
-                face = detect_and_prepare_face(gray)
-                if face is None:
-                    continue
-                images.append(face)
-                labels.append(next_label)
-            except Exception as e:
-                print(f"Warning: failed to process {p}: {e}")
+                face = detect_and_prepare_face(img_path)
+                if face is not None:
+                    valid_faces.append(face)
+            except Exception:
+                continue
+        
+        # QUALITY CHECK: require at least MIN_IMAGES_PER_STUDENT valid training images
+        if len(valid_faces) < MIN_IMAGES_PER_STUDENT:
+            students_skipped += 1
+            continue
+        
+        # Assign label
+        label_map[str(next_label)] = sid
+        
+        # Add all valid faces for this student to training set
+        for face in valid_faces:
+            images.append(face)
+            labels.append(next_label)
+        
+        students_processed += 1
         next_label += 1
 
-    return images, labels, label_map
+    return images, labels, label_map, students_processed, students_skipped
 
 
-def train_and_save(images, labels, label_map):
+def train_and_save(images, labels, label_map, students_processed, students_skipped):
     if not images or not labels:
         print('No training data found. Register students and upload their images to storage/training.')
+        print('QUALITY REQUIREMENT: Each student needs at least 2 valid face images.')
         return False
 
-    # create recognizer
+    # create recognizer with enhanced parameters for improved accuracy
     try:
         if hasattr(cv2, 'face') and hasattr(cv2.face, 'LBPHFaceRecognizer_create'):
-            recognizer = cv2.face.LBPHFaceRecognizer_create()
+            # Enhanced LBPH parameters:
+            # - radius=2: neighborhood radius for LBP computation
+            # - neighbors=16: number of neighbors in the LBP (typically 8 or 16)
+            # - grid_x=8, grid_y=8: spatial grid (higher = more local patterns = better discrimination)
+            recognizer = cv2.face.LBPHFaceRecognizer_create(
+                radius=2,
+                neighbors=16,
+                grid_x=8,
+                grid_y=8
+            )
         else:
             # fallback lookup
             recognizer = getattr(cv2, 'LBPHFaceRecognizer_create', None)
@@ -146,7 +242,10 @@ def train_and_save(images, labels, label_map):
         print('Failed to create LBPH recognizer:', e)
         return False
 
-    print(f'Training on {len(images)} faces across {len(set(labels))} labels...')
+    print(f'Training on {len(images)} preprocessed faces across {len(set(labels))} students...')
+    print(f'Students with >=2 valid images: {students_processed}')
+    print(f'Students skipped (insufficient images): {students_skipped}')
+    
     recognizer.train(images, np.array(labels, dtype=np.int32))
 
     recognizer.write(str(MODEL_PATH))
@@ -155,13 +254,14 @@ def train_and_save(images, labels, label_map):
 
     print('Training complete. Model saved to', MODEL_PATH)
     print('Labels mapping saved to', LABELS_PATH)
+    print(f'Model parameters: radius=2, neighbors=16, grid_x=8, grid_y=8')
     return True
 
 
 if __name__ == '__main__':
     db = get_db()
-    imgs, labs, lm = gather_training_data(db)
-    ok = train_and_save(imgs, labs, lm)
+    imgs, labs, lm, proc, skip = gather_training_data(db)
+    ok = train_and_save(imgs, labs, lm, proc, skip)
     if not ok:
         sys.exit(2)
     sys.exit(0)

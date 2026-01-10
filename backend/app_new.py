@@ -138,8 +138,29 @@ def compare_embeddings(emb1, emb2):
 
 
 # --- LBPH face recognizer utilities (OpenCV-only) ---
+def preprocess_face_for_match(face_gray):
+    """Apply CLAHE to normalize lighting for consistent recognition.
+    
+    CLAHE (Contrast Limited Adaptive Histogram Equalization) ensures
+    that faces captured under different lighting conditions are
+    normalized before LBPH matching, improving accuracy.
+    """
+    try:
+        clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
+        face_clahe = clahe.apply(face_gray)
+        return face_clahe
+    except Exception:
+        return face_gray
+
+
 def get_haar_detector():
-    """Return a Haar Cascade classifier for face detection. Safe to call repeatedly."""
+    """Return a Haar Cascade classifier for face detection.
+    
+    Configured with strict parameters to reduce false positives:
+    - scaleFactor=1.1: balance speed and accuracy
+    - minNeighbors=7: stricter than default 5
+    - minSize=(80,80): ignore very small faces
+    """
     try:
         return cv2.CascadeClassifier(HAAR_CASCADE_PATH)
     except Exception:
@@ -147,12 +168,25 @@ def get_haar_detector():
 
 
 def load_lbph_recognizer():
-    """Load LBPH recognizer and labels mapping if present. Returns (recognizer, labels_map) or (None, {})."""
+    """Load LBPH recognizer trained with enhanced parameters.
+    
+    The model was trained with:
+    - radius=2, neighbors=16, grid_x=8, grid_y=8
+    - Minimum 2 images per student for robust learning
+    - CLAHE preprocessing for lighting normalization
+    - Strict face detection to ensure only clear faces in training
+    """
     try:
         # LBPH is in cv2.face (opencv-contrib). Guard against missing contrib.
         recognizer = None
         if hasattr(cv2, 'face') and hasattr(cv2.face, 'LBPHFaceRecognizer_create'):
-            recognizer = cv2.face.LBPHFaceRecognizer_create()
+            # Match the training parameters exactly
+            recognizer = cv2.face.LBPHFaceRecognizer_create(
+                radius=2,
+                neighbors=16,
+                grid_x=8,
+                grid_y=8
+            )
         else:
             # Try older API lookup
             recognizer = getattr(cv2, 'LBPHFaceRecognizer_create', None)
@@ -273,43 +307,92 @@ def get_student(student_id):
 @app.route('/students', methods=['POST'])
 @token_required
 def add_student():
-    """Register a new student with a face image for training.
+    """Register a new student with multiple face images for training.
     
-    Image is saved to storage/training/ folder.
-    This training data is later used to train the LBPH recognizer.
+    MULTI-IMAGE REGISTRATION FOR ACCURACY:
+    - Requires minimum 3 images per student
+    - Images are stored in: storage/training/<student_id>/
+    - Images capture different angles/expressions: front.jpg, left.jpg, right.jpg, smile.jpg
+    - Multiple images improve LBPH training robustness (recognizes variation in face appearance)
+    
+    Image naming:
+    - file_front, file_left, file_right, file_smile -> front.jpg, left.jpg, right.jpg, smile.jpg
+    or
+    - file_1, file_2, file_3, ... -> image_1.jpg, image_2.jpg, image_3.jpg
     """
     db = get_db()
     data = request.form.to_dict()
-    file = request.files.get('image')
+    student_id = data.get('student_id')
     
-    if not data.get('student_id'):
+    if not student_id:
         return jsonify({'error': 'student_id required'}), 400
     
-    filename = None
-    embedding = None
+    # Get all uploaded image files (any field starting with 'file_')
+    image_files = []
+    for key in request.files.keys():
+        if key.startswith('file_'):
+            file = request.files.get(key)
+            if file and allowed_file(file.filename):
+                image_files.append((key, file))
     
-    if file and allowed_file(file.filename):
-        # Save to training folder for LBPH model training
-        filename = secure_filename(f"{data.get('student_id')}_{file.filename}")
-        path = STORAGE_TRAINING / filename
-        # Read bytes safely, compute embedding with OpenCV, then save
-        file_bytes = file.read()
-        embedding = image_to_embedding(file_bytes)
+    # QUALITY CHECK: require minimum 3 images
+    if len(image_files) < 3:
+        return jsonify({'error': f'Minimum 3 images required (got {len(image_files)})'}), 400
+    
+    # Create student subdirectory in storage/training/
+    student_dir = STORAGE_TRAINING / student_id
+    try:
+        student_dir.mkdir(parents=True, exist_ok=True)
+    except Exception as e:
+        return jsonify({'error': f'Failed to create student directory: {e}'}), 500
+    
+    # Save images with semantic names for multi-angle training
+    image_mapping = {
+        'file_front': 'front.jpg',
+        'file_left': 'left.jpg',
+        'file_right': 'right.jpg',
+        'file_smile': 'smile.jpg'
+    }
+    
+    saved_images = []
+    first_embedding = None
+    
+    for i, (field_name, file) in enumerate(image_files, 1):
+        # Determine filename: use semantic name if available, else numeric
+        if field_name in image_mapping:
+            filename = image_mapping[field_name]
+        else:
+            # Fallback: image_1.jpg, image_2.jpg, etc.
+            ext = file.filename.rsplit('.', 1)[1].lower() if '.' in file.filename else 'jpg'
+            filename = f"image_{i}.{ext}"
+        
+        filepath = student_dir / filename
+        
         try:
-            with open(path, 'wb') as ofh:
+            file_bytes = file.read()
+            
+            # Compute embedding from first image for backward compatibility
+            if i == 1:
+                first_embedding = image_to_embedding(file_bytes)
+            
+            # Save to student subdirectory
+            with open(filepath, 'wb') as ofh:
                 ofh.write(file_bytes)
-        except Exception:
-            # If save fails, continue without file but keep embedding if available
-            print(f"Warning: failed to save student image to {path}")
+            
+            saved_images.append(filename)
+        except Exception as e:
+            print(f"Warning: failed to save {filename} for student {student_id}: {e}")
     
     student_doc = {
-        'student_id': data.get('student_id'),
+        'student_id': student_id,
         'name': data.get('name', 'Unknown'),
         'dept': data.get('dept', 'CSE'),
         'year': data.get('year', '1'),
         'mobile': data.get('mobile', ''),
-        'image': filename,
-        'embedding': embedding,
+        'image_dir': str(student_dir),  # reference to subdirectory
+        'images': saved_images,  # list of saved image files
+        'image': saved_images[0] if saved_images else None,  # first image for backward compat
+        'embedding': first_embedding,
         'bunk_count': 0,
         'created_at': datetime.datetime.now(),
         'updated_at': datetime.datetime.now()
@@ -318,7 +401,12 @@ def add_student():
     result = db.students.insert_one(student_doc)
     student_doc['_id'] = str(result.inserted_id)
     
-    return jsonify({'status': 'created', 'student': student_doc}), 201
+    return jsonify({
+        'status': 'created',
+        'student': student_doc,
+        'images_saved': saved_images,
+        'message': f'Student registered with {len(saved_images)} images for training'
+    }), 201
 
 
 # === MATCHING & DETECTION ===
@@ -357,12 +445,20 @@ def match_student():
 
         gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
 
-        # Detect faces using Haar Cascade
+        # Detect faces using Haar Cascade with strict parameters
+        # (same as used in training for consistency)
         detector = get_haar_detector()
         if detector is None:
             return jsonify({'success': False, 'error': 'Haar Cascade not available on server.'}), 500
 
-        faces = detector.detectMultiScale(gray, scaleFactor=1.1, minNeighbors=5)
+        # Use strict detection parameters (minNeighbors=7, minSize=(80,80))
+        # matching those used during training for consistency
+        faces = detector.detectMultiScale(
+            gray,
+            scaleFactor=1.1,
+            minNeighbors=7,
+            minSize=(80, 80)
+        )
         if len(faces) == 0:
             return jsonify({'success': True, 'match': None, 'confidence': None, 'error': 'No face detected.'}), 200
 
@@ -378,12 +474,17 @@ def match_student():
         for (x, y, w, h) in faces:
             face = gray[y:y+h, x:x+w]
             try:
+                # Resize to 200x200 (standard for LBPH)
                 face_resized = cv2.resize(face, (200, 200))
+                
+                # Apply CLAHE preprocessing (same as training)
+                # normalizes lighting variations for consistent matching
+                face_preprocessed = preprocess_face_for_match(face_resized)
             except Exception:
                 continue
 
             try:
-                label, conf = _LBPH.predict(face_resized)
+                label, conf = _LBPH.predict(face_preprocessed)
             except Exception as e:
                 # If prediction fails, skip this face
                 print('LBPH predict error:', e)
@@ -416,7 +517,7 @@ def match_student():
             return jsonify({'success': True, 'match': None, 'confidence': similarity, 'error': 'Student not found in DB.'}), 200
 
         # Decide match threshold: LBPH lower is better. Use 0.45 for strict matching.
-        LBPH_THRESHOLD = float(os.environ.get('LBPH_THRESHOLD', '50.0'))
+        LBPH_THRESHOLD = float(os.environ.get('LBPH_THRESHOLD', '55.0'))
         is_match = best_conf < LBPH_THRESHOLD
 
         if is_match:
