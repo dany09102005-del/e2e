@@ -500,6 +500,6 @@ def serve_design(filename):
 def ping():
     return jsonify({'status': 'ok'})
 
-
+# STUDENTS ADDED THROUGH FRONTEND
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000, debug=True)
