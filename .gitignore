@@ -5,3 +5,9 @@ frontend/build/
 backend/storage/
 *.pyc
 students.json
+
+model.yml
+labels.json
+storage/training/
+storage/uploads/
+

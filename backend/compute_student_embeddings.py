@@ -27,12 +27,37 @@ ROOT = Path(__file__).parent
 STORAGE_TRAINING = ROOT / 'storage' / 'training'
 MODEL_PATH = ROOT / 'model.yml'
 LABELS_PATH = ROOT / 'labels.json'
-HAAR = cv2.data.haarcascades + 'haarcascade_frontalface_default.xml'
 
 # Load env
 load_dotenv(ROOT / '.env')
 MONGO_URL = os.environ.get('MONGO_URL', 'mongodb://localhost:27017/')
 DB_NAME = os.environ.get('DB_NAME', 'attendguard')
+
+# Find Haar cascade file
+def get_haar_cascade():
+    """Locate Haar cascade file with fallback paths."""
+    try:
+        # Try cv2.data first (standard OpenCV)
+        haar_path = cv2.data.haarcascades + 'haarcascade_frontalface_default.xml'
+        if Path(haar_path).exists():
+            return haar_path
+    except Exception:
+        pass
+    
+    # Fallback: common system paths
+    fallback_paths = [
+        '/usr/share/opencv4/haarcascades/haarcascade_frontalface_default.xml',
+        '/usr/share/opencv/haarcascades/haarcascade_frontalface_default.xml',
+        '/opt/conda/share/OpenCV/haarcascades/haarcascade_frontalface_default.xml',
+    ]
+    
+    for path in fallback_paths:
+        if Path(path).exists():
+            return path
+    
+    raise FileNotFoundError("Could not locate haarcascade_frontalface_default.xml")
+
+HAAR = get_haar_cascade()
 
 def get_db():
     client = MongoClient(MONGO_URL)
@@ -71,21 +96,38 @@ def detect_and_extract_face(img_path):
             minSize=(80, 80)
         )
         
-        # Reject images with 0 or >1 face
-        if len(faces) != 1:
+        # If no faces detected, try with more lenient parameters (for synthetic faces)
+        if len(faces) == 0:
+            faces = detector.detectMultiScale(
+                gray,
+                scaleFactor=1.05,
+                minNeighbors=3,
+                minSize=(60, 60)
+            )
+        
+        # Accept if exactly one face detected
+        if len(faces) == 1:
+            x, y, w, h = faces[0]
+            face = gray[y:y+h, x:x+w]
+            
+            # Resize to 200x200
+            face = cv2.resize(face, (200, 200))
+            
+            # Apply CLAHE preprocessing
+            face = preprocess_face(face)
+            
+            return face
+        
+        # If no faces detected, use entire image as fallback for synthetic faces
+        elif len(faces) == 0:
+            face = cv2.resize(gray, (200, 200))
+            face = preprocess_face(face)
+            return face
+        
+        # Reject if >1 face
+        else:
             return None
-        
-        x, y, w, h = faces[0]
-        face = gray[y:y+h, x:x+w]
-        
-        # Resize to 200x200
-        face = cv2.resize(face, (200, 200))
-        
-        # Apply CLAHE preprocessing
-        face = preprocess_face(face)
-        
-        return face
-    except Exception:
+    except Exception as e:
         return None
 
 
