@@ -399,16 +399,21 @@ def match_student():
         if best is None or best_label is None:
             return jsonify({'success': True, 'match': None, 'confidence': None, 'error': 'No recognizer prediction.'}), 200
 
+        # Convert LBPH distance (lower is better) into a similarity score [0..1]
+        # so the frontend can treat higher = better. We clamp to [0,1].
+        LBPH_MAX = float(os.environ.get('LBPH_MAX', '200.0'))
+        similarity = max(0.0, min(1.0, 1.0 - (best_conf / LBPH_MAX)))
+
         # Map label to student_id using labels file
         student_id = _LABELS.get(best_label)
         if not student_id:
-            return jsonify({'success': True, 'match': None, 'confidence': best_conf, 'error': 'Unknown label.'}), 200
+            return jsonify({'success': True, 'match': None, 'confidence': similarity, 'error': 'Unknown label.'}), 200
 
         # Lookup student in DB
         db = get_db()
         student = db.students.find_one({'student_id': student_id})
         if not student:
-            return jsonify({'success': True, 'match': None, 'confidence': best_conf, 'error': 'Student not found in DB.'}), 200
+            return jsonify({'success': True, 'match': None, 'confidence': similarity, 'error': 'Student not found in DB.'}), 200
 
         # Decide match threshold: LBPH lower is better. Typical thresholds: 50-100.
         LBPH_THRESHOLD = float(os.environ.get('LBPH_THRESHOLD', '80.0'))
@@ -425,7 +430,7 @@ def match_student():
                 'dept': student.get('dept'),
                 'location': location,
                 'timestamp': datetime.datetime.now(),
-                'confidence': best_conf,
+                'confidence': similarity,
                 'image': filename
             }
             try:
@@ -434,10 +439,10 @@ def match_student():
                 print('Warning: failed to insert violation record')
 
             student['_id'] = str(student['_id'])
-            return jsonify({'success': True, 'matched': True, 'student': student, 'confidence': best_conf})
+            return jsonify({'success': True, 'matched': True, 'student': student, 'confidence': similarity})
 
         # Not a confident match
-        return jsonify({'success': True, 'matched': False, 'student': None, 'confidence': best_conf})
+        return jsonify({'success': True, 'matched': False, 'student': None, 'confidence': similarity})
 
     except Exception as e:
         print(f"Match error: {e}")
