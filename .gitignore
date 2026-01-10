@@ -7,7 +7,9 @@ backend/storage/
 students.json
 
 model.yml
+backend/model.yml
 labels.json
 storage/training/
 storage/uploads/
+
 
