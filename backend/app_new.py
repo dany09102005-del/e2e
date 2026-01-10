@@ -439,10 +439,10 @@ def match_student():
                 print('Warning: failed to insert violation record')
 
             student['_id'] = str(student['_id'])
-            return jsonify({'success': True, 'matched': True, 'student': student, 'confidence': similarity})
+            return jsonify({'success': True, 'matched': True, 'student': student, 'match': student, 'confidence': similarity})
 
         # Not a confident match
-        return jsonify({'success': True, 'matched': False, 'student': None, 'confidence': similarity})
+        return jsonify({'success': True, 'matched': False, 'student': None, 'match': None, 'confidence': similarity})
 
     except Exception as e:
         print(f"Match error: {e}")
