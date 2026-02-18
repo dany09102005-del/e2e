@@ -10,23 +10,32 @@ DEEP LEARNING EMBEDDINGS:
 """
 import os
 import sys
+import io
 from pathlib import Path
 import cv2
 import numpy as np
 from pymongo import MongoClient
 from datetime import datetime
 
-# Import face_recognition for deep learning embeddings
+# Import face_recognition with stderr suppression to avoid warnings
+face_recognition = None
 try:
-    import face_recognition
+    # Suppress the "Please install face_recognition_models" warning
+    old_stderr = sys.stderr
+    sys.stderr = io.StringIO()
+    try:
+        import face_recognition
+    finally:
+        sys.stderr = old_stderr
 except ImportError:
     print("⚠️  face_recognition library not available. Install: pip install face-recognition")
-    face_recognition = None
+    sys.exit(1)
 
 MONGO_URL = os.environ.get('MONGO_URL', 'mongodb://localhost:27017/')
 DB_NAME = 'attendguard'
 # Demo student images are saved to training folder (will be used to compute embeddings)
 STORAGE_TRAINING = Path(__file__).parent / 'storage' / 'training'
+
 
 
 # Demo student data
@@ -90,23 +99,6 @@ def extract_embedding(image_path_or_array):
     Returns:
         list[float] (128 values) or None
     """
-    if face_recognition is None:
-        # Fallback: simple OpenCV-based embedding (not used if face_recognition available)
-        try:
-            if isinstance(image_path_or_array, (str, Path)):
-                img = cv2.imread(str(image_path_or_array))
-            else:
-                img = image_path_or_array
-            
-            if img is None:
-                return None
-            
-            gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-            small = cv2.resize(gray, (64, 64))
-            return small.flatten().astype('float32').tolist()[:128]  # Truncate to 128 dims
-        except Exception:
-            return None
-    
     try:
         # Use deep learning face_recognition
         if isinstance(image_path_or_array, (str, Path)):

@@ -14,6 +14,8 @@ import os
 import json
 import datetime
 import jwt
+import sys
+import io
 from pathlib import Path
 from flask import Flask, request, jsonify, send_from_directory
 from flask_cors import CORS
@@ -23,7 +25,15 @@ from dotenv import load_dotenv
 import cv2
 import numpy as np
 from pymongo import MongoClient
-import face_recognition
+
+# Import face_recognition with stderr suppression
+old_stderr = sys.stderr
+sys.stderr = io.StringIO()
+try:
+    import face_recognition
+finally:
+    sys.stderr = old_stderr
+
 
 app = Flask(__name__)
 CORS(app)
@@ -524,9 +534,6 @@ def match_student():
     except Exception as e:
         print(f"Match error: {e}")
         import traceback
-        traceback.print_exc()
-        return jsonify({'success': False, 'error': 'Server error during matching', 'detail': str(e)}), 500
-
         traceback.print_exc()
         return jsonify({'success': False, 'error': 'Server error during matching', 'detail': str(e)}), 500
 
