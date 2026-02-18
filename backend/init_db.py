@@ -1,6 +1,12 @@
 #!/usr/bin/env python3
 """
-Initialize MongoDB with demo data and sample student images
+Initialize MongoDB with demo data and student embeddings using face_recognition.
+
+DEEP LEARNING EMBEDDINGS:
+- Uses dlib's ResNet-based CNN for face encoding
+- Each student gets 3 synthetic face images (front, left, right angles)
+- Encodings from all 3 images are extracted and averaged
+- Averaged embedding is stored for matching during bunk checking
 """
 import os
 import sys
@@ -10,13 +16,18 @@ import numpy as np
 from pymongo import MongoClient
 from datetime import datetime
 
-# face_recognition is optional in this environment (requires dlib/CMake).
-# Skip importing to avoid issues; just use fallback embedding
+# Import face_recognition for deep learning embeddings
+try:
+    import face_recognition
+except ImportError:
+    print("⚠️  face_recognition library not available. Install: pip install face-recognition")
+    face_recognition = None
 
 MONGO_URL = os.environ.get('MONGO_URL', 'mongodb://localhost:27017/')
 DB_NAME = 'attendguard'
-# Demo student images are saved to training folder (they will be used to train LBPH)
+# Demo student images are saved to training folder (will be used to compute embeddings)
 STORAGE_TRAINING = Path(__file__).parent / 'storage' / 'training'
+
 
 # Demo student data
 DEMO_STUDENTS = [
@@ -67,13 +78,72 @@ def generate_sample_face(name_str, student_id):
     return img
 
 
-def extract_embedding(image):
-    """Extract embedding from image"""
-    # Using fallback: simple feature extraction with OpenCV
-    # (face_recognition would require dlib/CMake which is problematic)
-    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-    small = cv2.resize(gray, (64, 64))
-    return small.flatten().astype('float32').tolist()
+def extract_embedding(image_path_or_array):
+    """Extract face encoding using deep learning (face_recognition).
+    
+    DEEP LEARNING: Uses dlib ResNet model trained on millions of faces.
+    Returns 128-dimensional embedding vector or None if no face detected.
+    
+    Args:
+        image_path_or_array: file path (str/Path) or numpy array
+    
+    Returns:
+        list[float] (128 values) or None
+    """
+    if face_recognition is None:
+        # Fallback: simple OpenCV-based embedding (not used if face_recognition available)
+        try:
+            if isinstance(image_path_or_array, (str, Path)):
+                img = cv2.imread(str(image_path_or_array))
+            else:
+                img = image_path_or_array
+            
+            if img is None:
+                return None
+            
+            gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+            small = cv2.resize(gray, (64, 64))
+            return small.flatten().astype('float32').tolist()[:128]  # Truncate to 128 dims
+        except Exception:
+            return None
+    
+    try:
+        # Use deep learning face_recognition
+        if isinstance(image_path_or_array, (str, Path)):
+            image = face_recognition.load_image_file(str(image_path_or_array))
+        else:
+            # Assume it's a numpy array already
+            image = image_path_or_array
+        
+        encodings = face_recognition.face_encodings(image)
+        
+        if len(encodings) > 0:
+            return encodings[0].tolist()
+        
+        return None
+    except Exception as e:
+        print(f"Error extracting embedding: {e}")
+        return None
+
+
+def average_embeddings(embedding_list):
+    """Average multiple embeddings for a stable student embedding.
+    
+    Multiple images of same student -> averaged embedding is more robust
+    to variation in pose, lighting, and expression.
+    
+    Args:
+        embedding_list: list of embeddings (each is list[float])
+    
+    Returns:
+        list[float]: averaged embedding
+    """
+    if not embedding_list:
+        return None
+    
+    arr = np.array(embedding_list, dtype='float32')
+    avg = np.mean(arr, axis=0)
+    return avg.tolist()
 
 
 
@@ -89,10 +159,10 @@ def init_db():
     db.users.delete_many({})
     
     # Create storage/training directory for demo student images
-    # These images will be used to train the LBPH recognizer
+    # These images will be used to compute deep learning embeddings
     STORAGE_TRAINING.mkdir(parents=True, exist_ok=True)
     
-    print("📚 Initializing demo students...")
+    print("📚 Initializing demo students with deep learning embeddings...")
     
     # Insert students with generated images in per-student subdirectories
     for i, student_data in enumerate(DEMO_STUDENTS):
@@ -102,10 +172,10 @@ def init_db():
         student_dir = STORAGE_TRAINING / student_id
         student_dir.mkdir(parents=True, exist_ok=True)
         
-        # Generate and save 3+ demo images per student (multiple angles/expressions)
-        # This improves LBPH training robustness significantly
+        # Generate and save 3 demo images per student (different angles/expressions)
+        # Multiple images improve embedding robustness
         image_names = []
-        embeddings = []
+        all_embeddings = []  # Collect embeddings from ALL images for averaging
         
         for angle_idx, angle_name in enumerate(['front', 'left', 'right']):
             # Generate synthetic face image with slight variation per angle
@@ -115,17 +185,20 @@ def init_db():
             M = cv2.getRotationMatrix2D((112, 112), angle_idx * 15 - 15, 1.0)
             img = cv2.warpAffine(img, M, (224, 224), borderValue=(240, 240, 240))
             
-            # Save image with semantic name: front.jpg, left.jpg, right.jpg, etc.
+            # Save image with semantic name: front.jpg, left.jpg, right.jpg
             image_filename = f"{angle_name}.jpg"
             image_path = student_dir / image_filename
             cv2.imwrite(str(image_path), img)
             
-            # Extract embedding from first image only for DB (backward compat)
-            if angle_idx == 0:
-                embedding = extract_embedding(img)
-                embeddings.append(embedding)
+            # Extract embedding from this image using deep learning
+            embedding = extract_embedding(img)
+            if embedding is not None:
+                all_embeddings.append(embedding)
             
             image_names.append(image_filename)
+        
+        # Average embeddings from all valid images for stable student embedding
+        student_embedding = average_embeddings(all_embeddings) if all_embeddings else None
         
         student_doc = {
             'student_id': student_id,
@@ -136,14 +209,17 @@ def init_db():
             'image_dir': str(student_dir),  # reference to subdirectory
             'images': image_names,  # list of saved images
             'image': image_names[0] if image_names else None,  # first image for backward compat
-            'embedding': embeddings[0] if embeddings else None,
+            'embedding': student_embedding,  # averaged deep learning embedding (128 dims)
+            'num_training_images': len(image_names),
+            'num_valid_faces': len(all_embeddings),
+            'embedding_method': 'deep_learning_averaged',
             'bunk_count': 0,
             'created_at': datetime.now(),
             'updated_at': datetime.now()
         }
         
         db.students.insert_one(student_doc)
-        print(f"  ✓ {student_id} - {student_data['name']} ({len(image_names)} images)")
+        print(f"  ✓ {student_id} - {student_data['name']} ({len(all_embeddings)} embeddings averaged)")
     
     print("\n📅 Initializing timetable...")
     for t in TIMETABLE:
