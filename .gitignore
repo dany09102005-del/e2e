@@ -47,6 +47,24 @@ __pycache__/
 # Environment variables
 .env
 
-# Storage uploads (optional)
+#
 backend/storage/uploads/
+
+
+# Virtual environments
+venv/
+venv310/
+backend/venv310/
+
+# Environment files
+.env
+backend/.env
+
+# Build folders
+frontend/dist/
+
+# Python cache
+__pycache__/
+*.pyc
+
 

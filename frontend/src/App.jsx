@@ -22,6 +22,8 @@ function LoginPage({ onLogin }) {
       } else {
         const res = await axios.post(`${API}/auth/login`, { username, password })
         localStorage.setItem('token', res.data.token)
+        console.log('Login token stored:', res.data.token)
+        console.log('Login token stored:', res.data.token)
         onLogin(res.data.token)
       }
     } catch (err) {
@@ -343,6 +345,10 @@ function DetectPage({ onDetect }) {
   const [file, setFile] = useState(null)
   const [location, setLocation] = useState('')
   const [result, setResult] = useState(null)
+  const [matchedStudent, setMatchedStudent] = useState(null)
+  const [captureImage, setCaptureImage] = useState(null)
+  const [matchConfidence, setMatchConfidence] = useState(null)
+  const [matchDistance, setMatchDistance] = useState(null)
 
   const handleSubmit = async (e) => {
     e.preventDefault()
@@ -354,11 +360,74 @@ function DetectPage({ onDetect }) {
       const res = await axios.post(`${API}/match`, fd, {
         headers: { 'Content-Type': 'multipart/form-data' }
       })
+      // Debug: log full backend response before rendering
+      console.log('Match response:', res.data)
       setResult(res.data)
+
+      // Clear prior match state
+      setMatchedStudent(null)
+      setCaptureImage(null)
+      setMatchConfidence(null)
+      setMatchDistance(null)
+
+      if (res.data && res.data.matched) {
+        setMatchedStudent(res.data.student)
+        setCaptureImage(res.data.capture_image || res.data.captureImage || null)
+        setMatchConfidence(res.data.confidence ?? null)
+        setMatchDistance(res.data.distance ?? null)
+      }
+
       onDetect()
     } catch (err) {
+      // Handle known client errors (e.g., multiple faces)
+      if (err.response?.status === 400) {
+        alert(err.response?.data?.error || 'Bad request')
+        return
+      }
       console.error('Match error:', err.response?.data || err.message)
       alert(`Error: ${err.response?.data?.error || 'Failed to match image'}`)
+    }
+  }
+
+  const handleConfirm = async () => {
+    if (!matchedStudent) return
+    try {
+      const token = localStorage.getItem('token')
+      console.log('Token being sent:', token)
+      if (!token) {
+        localStorage.removeItem('token')
+        window.location.reload()
+        return
+      }
+
+      const payload = {
+        student_id: matchedStudent.student_id,
+        location: location,
+        confidence: matchConfidence,
+        distance: matchDistance,
+        image_filename: matchedStudent.image_filename || null,
+        capture_image: captureImage || null
+      }
+      const headers = { Authorization: `Bearer ${token}` }
+      await axios.post(`${API}/violations/confirm`, payload, { headers })
+      alert('Violation confirmed')
+      // Clear match state after confirmation
+      setMatchedStudent(null)
+      setCaptureImage(null)
+      setMatchConfidence(null)
+      setMatchDistance(null)
+      setResult(null)
+      onDetect()
+    } catch (err) {
+      if (err.response?.status === 401) {
+        // Invalid or expired token — clear and force login
+        localStorage.removeItem('token')
+        alert('Session expired, please login again')
+        window.location.reload()
+        return
+      }
+      console.error('Confirm error:', err.response?.data || err.message)
+      alert('Failed to confirm violation')
     }
   }
 
@@ -392,28 +461,53 @@ function DetectPage({ onDetect }) {
           </button>
         </form>
         <div className="detect-result">
-          {result ? (
-            <>
-              {result.match ? (
-                <div className="match-found">
-                  <h4>✓ Match Found</h4>
-                  <img src={`${API}/storage/${result.match.image}`} alt={result.match.name} />
-                  <div>
-                    <strong>{result.match.name}</strong>
-                    <br />
-                    {result.match.student_id}
-                    <br />
-                    {result.match.dept}
-                  </div>
-                  <div className="confidence">Confidence: {(result.confidence * 100).toFixed(0)}%</div>
+          {matchedStudent ? (
+            <div className="match-found">
+              <h4>✓ Match Found</h4>
+              <div style={{ display: 'flex', gap: 30, marginTop: 20 }}>
+                <div>
+                  <h4>Captured Image</h4>
+                  {captureImage ? (
+                    <img src={`${API}/storage/${captureImage}`} alt="Captured" width={200} />
+                  ) : (
+                    <p className="muted">No captured image available</p>
+                  )}
                 </div>
-              ) : (
-                <div className="no-match">
-                  <h4>✗ No Match Found</h4>
-                  <p>Confidence: {(result.confidence * 100).toFixed(0)}%</p>
+
+                <div>
+                  <h4>Registered Image</h4>
+                  {result?.registered_images?.length > 0 ? (
+                    <img
+                      src={`${API}/storage/${result.registered_images[0]}`}
+                      alt="Registered"
+                      width={200}
+                      onError={(e) => { e.target.onerror = null; e.target.src = 'https://via.placeholder.com/150' }}
+                    />
+                  ) : (
+                    <p className="muted">No registered image</p>
+                  )}
                 </div>
-              )}
-            </>
+              </div>
+
+              <div style={{ marginTop: 12 }}>
+                <strong>{matchedStudent.name}</strong>
+                <br />
+                {matchedStudent.student_id}
+                <br />
+                {matchedStudent.dept}
+              </div>
+
+              <div className="confidence">Confidence: {Number(matchConfidence ?? 0).toFixed(2)}%</div>
+              <div style={{ marginTop: 12 }}>
+                <button className="primary" onClick={handleConfirm}>Confirm Violation</button>
+              </div>
+            </div>
+          ) : result ? (
+            // result exists but no match
+            <div className="no-match">
+              <h4>✗ No Match Found</h4>
+              <p>Confidence: 0%</p>
+            </div>
           ) : (
             <p className="muted">Upload an image to see identification results</p>
           )}

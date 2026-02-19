@@ -33,6 +33,7 @@ from werkzeug.security import generate_password_hash, check_password_hash
 from dotenv import load_dotenv
 import numpy as np
 from pymongo import MongoClient
+import secrets
 
 # Import face_recognition for deep learning embeddings
 old_stderr = sys.stderr
@@ -52,7 +53,19 @@ load_dotenv(ROOT / '.env')
 STORAGE_TRAINING = ROOT / 'storage' / 'training'
 STORAGE_UPLOADS = ROOT / 'storage' / 'uploads'
 ALLOWED = {'png', 'jpg', 'jpeg'}
-SECRET = os.environ.get('APP_SECRET', 'dev-secret-key-change-in-prod')
+env_secret = os.environ.get('APP_SECRET')
+if env_secret:
+    # If provided, require a minimum length for HMAC safety
+    if len(env_secret) < 32:
+        print("✗ APP_SECRET is set but too short (must be >= 32 characters). Exiting.")
+        sys.exit(1)
+    SECRET = env_secret
+else:
+    # No APP_SECRET provided: generate a secure 64-char secret for runtime
+    gen = secrets.token_hex(32)
+    SECRET = gen
+    print("⚠️ APP_SECRET not found in .env. Generated a secure temporary APP_SECRET for this run.")
+    print("⚠️ For production, set APP_SECRET in your .env to a stable, random >=32-character value.")
 MONGO_URL = os.environ.get('MONGO_URL', 'mongodb://localhost:27017/')
 DB_NAME = 'attendguard'
 
@@ -82,6 +95,62 @@ def init_storage():
         print(f"✗ Failed to initialize storage: {e}")
 
 init_storage()
+
+# Synchronize DB with filesystem at startup
+sync_training_images_with_db_defer = True  # Will call after defining the function
+
+
+def sync_training_images_with_db():
+    """Enforce strict synchronization between storage/training/ and MongoDB.
+    
+    For every student in DB:
+    - Scan storage/training/ for files starting with student_id_
+    - Update DB image_filenames to match filesystem
+    - If no files found, set status='pending_image'
+    - If files found, set status='active'
+    
+    This ensures DB is always consistent with filesystem.
+    """
+    db = get_db()
+    if db is None:
+        print("[WARN] Cannot sync: no DB connection")
+        return
+    
+    try:
+        all_files = os.listdir(STORAGE_TRAINING)
+    except Exception as e:
+        print(f"[ERROR] Failed to list training folder: {e}")
+        return
+    
+    students = list(db.students.find({}))
+    synced = 0
+    
+    for student in students:
+        sid = student.get('student_id')
+        if not sid:
+            continue
+        
+        # Find all files starting with student_id_
+        matching_files = [f for f in all_files if f.startswith(sid + '_') or f.startswith(sid + '.')]
+        
+        update_doc = {
+            'image_filenames': matching_files,
+            'updated_at': datetime.datetime.now()
+        }
+        
+        if matching_files:
+            update_doc['status'] = 'active'
+        else:
+            update_doc['status'] = 'pending_image'
+        
+        try:
+            db.students.update_one({'_id': student['_id']}, {'$set': update_doc})
+            synced += 1
+            print(f"[SYNC] {sid}: image_filenames={matching_files}, status={update_doc['status']}")
+        except Exception as e:
+            print(f"[SYNC ERROR] Failed to update {sid}: {e}")
+    
+    print(f"[SYNC] Completed: {synced} students synchronized")
 
 
 def get_db():
@@ -306,6 +375,18 @@ def get_student(student_id):
     return jsonify({'error': 'student not found'}), 404
 
 
+@app.route('/students/pending', methods=['GET'])
+@token_required
+def get_pending_students():
+    """Return students with missing embeddings or status 'pending_image'."""
+    db = get_db()
+    query = {'$or': [{'embedding': None}, {'status': 'pending_image'}]}
+    docs = list(db.students.find(query, {'embedding': 0}))
+    for d in docs:
+        d['_id'] = str(d['_id'])
+    return jsonify(docs)
+
+
 @app.route('/students', methods=['POST'])
 @token_required
 def register_student():
@@ -355,48 +436,256 @@ def register_student():
     
     # Read image bytes
     file_bytes = file.read()
-    
-    # Extract face encoding from the image
-    encoding = extract_face_encoding(file_bytes)
-    
-    if encoding is None:
-        return jsonify({
-            'error': 'Face detection failed: no face or multiple faces detected',
-            'details': 'Ensure image has exactly one clear face'
-        }), 400
-    
-    # Save image to storage/training/<student_id>.png (simple format, no subdirs)
-    image_path = STORAGE_TRAINING / f"{student_id}.png"
-    
+
+    # Save training image with a timestamped filename to allow multiple images per student
+    # Do NOT store absolute paths in DB; only store filenames in `image_filenames` list
+    ext = file.filename.rsplit('.', 1)[1].lower() if '.' in file.filename else 'png'
+    if ext not in ALLOWED:
+        ext = 'png'
+    ts = int(datetime.datetime.now().timestamp())
+    image_filename = f"{secure_filename(student_id)}_{ts}.{ext}"
+    image_path = STORAGE_TRAINING / image_filename
+
+    # Save image to training storage
     try:
         with open(image_path, 'wb') as ofh:
             ofh.write(file_bytes)
     except Exception as e:
-        return jsonify({'error': f'Failed to save image: {e}'}), 500
-    
-    # Create MongoDB document
+        return jsonify({'success': False, 'error': f'Failed to save image: {e}'}), 500
+
+    # Load saved image and check face count
+    try:
+        image = face_recognition.load_image_file(str(image_path))
+    except Exception as e:
+        print(f"[ERROR] Failed to load saved training image {image_path}: {e}")
+        return jsonify({'success': False, 'error': 'Failed to load saved image'}), 500
+
+    face_locations = face_recognition.face_locations(image)
+    num_faces = len(face_locations)
+    print(f"[DEBUG] Registration image faces detected: {num_faces}")
+
+    if num_faces == 0:
+        # Do not create DB entry; instruct client to upload a clear single-face image
+        return jsonify({'success': False, 'error': 'No face detected in provided image; upload a single clear face'}), 400
+    if num_faces > 1:
+        return jsonify({'success': False, 'error': 'Multiple faces detected; upload an image with exactly one face'}), 400
+
+    # Extract embedding from numpy image
+    encoding = extract_face_encoding(image)
+    if encoding is None:
+        return jsonify({'success': False, 'error': 'Failed to extract face encoding'}), 500
+
+    # Confirm embedding length
+    print(f"[DEBUG] Embedding length for {student_id}: {len(encoding)}")
+
+    db = get_db()
+
+    # Upsert: if student exists, append to image_filenames and update embedding/status
+    existing = db.students.find_one({'student_id': student_id})
+    if existing:
+        try:
+            db.students.update_one(
+                {'student_id': student_id},
+                {
+                    '$set': {
+                        'name': data.get('name', existing.get('name', 'Unknown')),
+                        'dept': data.get('dept', existing.get('dept', 'CSE')),
+                        'year': data.get('year', existing.get('year', '1')),
+                        'mobile': data.get('mobile', existing.get('mobile', '')),
+                        'embedding': encoding,
+                        'status': 'active',
+                        'updated_at': datetime.datetime.now()
+                    },
+                    '$addToSet': {'image_filenames': image_filename}
+                }
+            )
+        except Exception as e:
+            return jsonify({'success': False, 'error': f'Failed to update student record: {e}'}), 500
+
+        student_doc = db.students.find_one({'student_id': student_id}, {'embedding': 0})
+        student_doc['_id'] = str(student_doc['_id'])
+        return jsonify({'success': True, 'student': student_doc, 'message': 'Student updated with new face embedding', 'embedding_dimension': len(encoding)}), 200
+
+    # New student document
     student_doc = {
         'student_id': student_id,
         'name': data.get('name', 'Unknown'),
         'dept': data.get('dept', 'CSE'),
         'year': data.get('year', '1'),
         'mobile': data.get('mobile', ''),
-        'image_path': str(image_path),
+        'image_filenames': [image_filename],
         'embedding': encoding,  # 128-dim vector
+        'status': 'active',
         'bunk_count': 0,
         'created_at': datetime.datetime.now(),
         'updated_at': datetime.datetime.now()
     }
-    
-    result = db.students.insert_one(student_doc)
+
+    try:
+        result = db.students.insert_one(student_doc)
+    except Exception as e:
+        return jsonify({'success': False, 'error': f'Failed to insert student record: {e}'}), 500
+
     student_doc['_id'] = str(result.inserted_id)
-    
-    return jsonify({
-        'status': 'created',
-        'student_id': student_id,
-        'message': f'Student registered with face embedding',
-        'embedding_dimension': len(encoding)
-    }), 201
+    resp = dict(student_doc)
+    resp.pop('embedding', None)
+    return jsonify({'success': True, 'student': resp, 'message': 'Student registered with face embedding', 'embedding_dimension': len(encoding)}), 201
+
+
+def process_pending_students():
+    """
+    Scan students with missing embeddings or status 'pending_image', try to load
+    the image from storage/training/<student_id>.(png|jpg|jpeg) and extract a
+    single-face embedding. If exactly one face is found, save embedding and set
+    status to 'active'. If no face, keep status 'pending_image' and emit a
+    warning. Do NOT create dummy embeddings.
+    Returns a summary dict.
+    """
+    db = get_db()
+    query = {'$or': [{'embedding': None}, {'status': 'pending_image'}]}
+    candidates = list(db.students.find(query))
+    summary = {'total': len(candidates), 'updated': 0, 'pending': 0, 'errors': 0}
+
+    for student in candidates:
+        sid = student.get('student_id')
+        print(f"[INFO] Processing student: {sid}")
+
+        # Build list of candidate image paths to check (log each check)
+        candidates_paths = []
+        checked_paths = []
+
+        # If student record lists image_filenames, prefer those
+        files_found = []
+        if isinstance(student.get('image_filenames'), list) and student.get('image_filenames'):
+            for fname in student.get('image_filenames'):
+                p = STORAGE_TRAINING / fname
+                checked_paths.append(str(p))
+                if p.exists():
+                    print(f"[DEBUG] Found training image from record: {p}")
+                    candidates_paths.append(p)
+                    files_found.append(p)
+                else:
+                    print(f"[DEBUG] Training image listed but missing: {p}")
+
+        # Also check for any files in training storage that start with the student_id
+        matches = list(STORAGE_TRAINING.glob(f"{sid}*"))
+        for p in matches:
+            if str(p) not in checked_paths:
+                checked_paths.append(str(p))
+                if p.exists():
+                    print(f"[DEBUG] Found training image by glob: {p}")
+                    candidates_paths.append(p)
+                    files_found.append(p)
+                else:
+                    print(f"[DEBUG] Training glob path missing: {p}")
+
+        # If an older image_path field was present, check it too (backwards compatibility)
+        ip = student.get('image_path')
+        if ip:
+            p = Path(ip)
+            checked_paths.append(str(p))
+            if p.exists():
+                print(f"[DEBUG] Found image at student.image_path: {p}")
+                candidates_paths.append(p)
+                files_found.append(p)
+            else:
+                print(f"[DEBUG] student.image_path specified but file missing: {p}")
+
+        if not candidates_paths:
+            print(f"[WARN] No image found for {sid}; checked paths:\n  " + "\n  ".join(checked_paths))
+            summary['pending'] += 1
+            # Ensure status remains pending_image
+            try:
+                db.students.update_one({'_id': student['_id']}, {'$set': {'status': 'pending_image', 'updated_at': datetime.datetime.now()}})
+            except Exception as e:
+                print(f"[ERROR] Failed to update status for {sid}: {e}")
+                summary['errors'] += 1
+            continue
+
+        # Try images in order until one yields a single-face embedding
+        found_embedding = None
+        used_path = None
+        for img_path in candidates_paths:
+            print(f"[DEBUG] Trying image: {img_path} for student {sid}")
+            # Load image and inspect face count to give precise failure reason
+            try:
+                img = face_recognition.load_image_file(str(img_path))
+            except Exception as e:
+                print(f"[ERROR] Failed to load image {img_path} for {sid}: {e}")
+                continue
+
+            try:
+                face_locs = face_recognition.face_locations(img)
+                nfaces = len(face_locs)
+                print(f"[DEBUG] Image {img_path} contains {nfaces} face(s)")
+                if nfaces == 0:
+                    print(f"[WARN] No face detected in {img_path} for {sid}; keeping status pending_image")
+                    continue
+                if nfaces > 1:
+                    print(f"[WARN] Multiple faces ({nfaces}) in {img_path} for {sid}; skipping this image")
+                    continue
+
+                # Single face detected — attempt to extract embedding
+                emb = extract_face_encoding(img)
+            except Exception as e:
+                print(f"[ERROR] Exception processing {img_path} for {sid}: {e}")
+                emb = None
+
+            if emb is None:
+                print(f"[WARN] Failed to extract valid embedding from {img_path} for {sid}")
+                continue
+
+            # Validate embedding length
+            if isinstance(emb, list) and len(emb) == 128:
+                found_embedding = emb
+                used_path = img_path
+                print(f"[DEBUG] Valid embedding extracted for {sid} from {img_path}, length={len(emb)}")
+                break
+            else:
+                print(f"[ERROR] Extracted embedding for {sid} from {img_path} has invalid length: {len(emb) if emb else 'None'}")
+
+        if found_embedding is None:
+            print(f"[WARN] Could not extract valid embedding for {sid}; keeping pending")
+            summary['pending'] += 1
+            try:
+                db.students.update_one({'_id': student['_id']}, {'$set': {'status': 'pending_image', 'updated_at': datetime.datetime.now()}})
+            except Exception as e:
+                print(f"[ERROR] Failed to update status for {sid}: {e}")
+                summary['errors'] += 1
+            continue
+
+        # Save embedding and update status to active; record all training filenames found
+        try:
+            # collect filenames for all training files that start with student_id
+            filenames_list = [p.name for p in STORAGE_TRAINING.glob(f"{sid}*")]
+            update_doc = {
+                'embedding': found_embedding,
+                'status': 'active',
+                'image_filenames': filenames_list,
+                'updated_at': datetime.datetime.now()
+            }
+            db.students.update_one({'_id': student['_id']}, {'$set': update_doc})
+            summary['updated'] += 1
+            print(f"[INFO] Student {sid} updated with embedding (status=active); images={filenames_list}")
+        except Exception as e:
+            print(f"[ERROR] Failed to update DB for {sid}: {e}")
+            summary['errors'] += 1
+
+    return summary
+
+
+@app.route('/students/fix_pending', methods=['POST'])
+@token_required
+def fix_pending_students_endpoint():
+    """API endpoint to trigger processing of pending students."""
+    try:
+        res = process_pending_students()
+        return jsonify({'status': 'done', 'summary': res}), 200
+    except Exception as e:
+        print(f"[ERROR] fix_pending_students_endpoint: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({'status': 'error', 'error': str(e)}), 500
 
 
 # --- ATTENDANCE VIOLATION DETECTION ---
@@ -435,10 +724,8 @@ def match_student():
         
         location = request.form.get('location', 'Unknown')
         
-        # Read image bytes
+        # Read image bytes and save to uploads folder for audit
         file_bytes = file.read()
-        
-        # Save to uploads folder for audit
         filename = secure_filename(f"capture_{datetime.datetime.now().timestamp()}_{file.filename}")
         path = STORAGE_UPLOADS / filename
         try:
@@ -446,38 +733,40 @@ def match_student():
                 ofh.write(file_bytes)
         except Exception:
             print(f"Warning: failed to save capture to {path}")
-        
-        # Extract face encoding from captured image
-        captured_encoding = extract_face_encoding(file_bytes)
-        
-        # DEBUG: Check if face was detected
+
+        # Load saved image using face_recognition to get an RGB numpy array
+        try:
+            image = face_recognition.load_image_file(str(path))
+        except Exception as e:
+            print(f"[ERROR] Failed to load saved image {path}: {e}")
+            return jsonify({'success': False, 'matched': False, 'error': 'Failed to load image'}), 400
+
+        # Check number of faces detected (locations) before encoding
+        face_locations = face_recognition.face_locations(image)
+        num_faces = len(face_locations)
+        print(f"[DEBUG] Uploaded image faces detected: {num_faces}")
+
+        if num_faces == 0:
+            return jsonify({'success': False, 'matched': False, 'error': 'No face detected in uploaded image'}), 400
+        if num_faces > 1:
+            return jsonify({'success': False, 'matched': False, 'error': 'Multiple faces detected in uploaded image'}), 400
+
+        # Extract face encoding from the loaded numpy image
+        captured_encoding = extract_face_encoding(image)
         if captured_encoding is None:
-            print(f"[DEBUG] No face detected in uploaded image: {file.filename}")
-            return jsonify({
-                'success': True,
-                'matched': False,
-                'confidence': None,
-                'distance': None,
-                'error': 'No face detected in image'
-            }), 200
-        
+            print(f"[ERROR] extract_face_encoding returned None despite single face detected")
+            return jsonify({'success': False, 'matched': False, 'error': 'Failed to extract face encoding'}), 500
+
         print(f"[DEBUG] Face detected. Encoding length: {len(captured_encoding)}")
         
         # Get all registered students
         db = get_db()
         students = list(db.students.find({'embedding': {'$exists': True, '$ne': None}}))
-        
+
+        # Debug: number of registered students
+        print(f"[DEBUG] Registered students with embeddings: {len(students)}")
         if not students:
-            print(f"[DEBUG] No registered students found in database")
-            return jsonify({
-                'success': True,
-                'matched': False,
-                'confidence': None,
-                'distance': None,
-                'error': 'No registered students'
-            }), 200
-        
-        print(f"[DEBUG] Found {len(students)} registered students")
+            return jsonify({'success': True, 'matched': False, 'confidence': None, 'distance': None, 'error': 'No registered students'}), 200
         
         # Find best matching student
         best_match = None
@@ -492,8 +781,7 @@ def match_student():
             
             # Compute distance between encodings
             distance = face_distance(captured_encoding, stored_embedding)
-            
-            print(f"[DEBUG] {student.get('student_id')}: distance={distance:.3f}")
+            print(f"[DEBUG] {student.get('student_id')}: distance={distance:.6f}")
             
             # Track best (closest) match
             if distance < best_distance:
@@ -501,58 +789,34 @@ def match_student():
                 best_match = student
         
         # Safety: only calculate confidence if we have a valid distance
-        if best_distance != float('inf') and best_distance is not None:
-            best_confidence = max(0.0, min(100.0, (1.0 - best_distance) * 100.0))
-            print(f"[DEBUG] Best match: {best_match.get('student_id') if best_match else 'None'}, distance={best_distance:.3f}, confidence={best_confidence:.1f}%")
+        if best_match is not None and best_distance is not None and best_distance != float('inf'):
+            best_confidence = round(max(0.0, min(100.0, (1.0 - best_distance) * 100.0)), 2)
+            print(f"[DEBUG] Best match: {best_match.get('student_id') if best_match else 'None'}, distance={best_distance:.6f}, confidence={best_confidence}%")
         else:
             best_confidence = None
             print(f"[DEBUG] No valid distance calculated (best_distance={best_distance})")
         
         # Decision: accept match only if distance < threshold
-        is_match = best_distance < FACE_DISTANCE_THRESHOLD and best_match is not None
-        
+        # Decision: accept match only if best_match exists and distance below threshold
+        is_match = (best_match is not None) and (best_distance is not None) and (best_distance < FACE_DISTANCE_THRESHOLD)
+
         if is_match and best_match and best_confidence is not None:
-            # Update student record
-            student_id = best_match.get('student_id')
-            try:
-                db.students.update_one(
-                    {'_id': best_match['_id']},
-                    {
-                        '$inc': {'bunk_count': 1},
-                        '$set': {'updated_at': datetime.datetime.now()}
-                    }
-                )
-            except Exception as e:
-                print(f"Warning: failed to update student bunk_count: {e}")
-            
-            # Record violation
-            violation = {
-                'student_id': student_id,
-                'student_name': best_match.get('name'),
-                'dept': best_match.get('dept'),
-                'location': location,
-                'timestamp': datetime.datetime.now(),
-                'confidence': best_confidence / 100.0,  # store as 0-1
-                'distance': float(best_distance),
-                'image': filename
-            }
-            try:
-                db.violations.insert_one(violation)
-                print(f"[DEBUG] Violation recorded: {student_id}")
-            except Exception as e:
-                print(f'Warning: failed to insert violation record: {e}')
-            
-            # Return matched student
+            # Match found: return student info but DO NOT write violation or increment bunk_count.
+            # The client must explicitly confirm the violation via /violations/confirm.
             best_match['_id'] = str(best_match['_id'])
-            # Remove embedding from response (too large)
             best_match.pop('embedding', None)
-            
+            best_match_resp = dict(best_match)
+            best_match_resp['_id'] = str(best_match_resp.get('_id'))
+            best_match_resp.pop('embedding', None)
+
             return jsonify({
                 'success': True,
                 'matched': True,
-                'student': best_match,
+                'student': best_match_resp,
+                'registered_images': best_match_resp.get('image_filenames', []),
                 'confidence': best_confidence,
-                'distance': float(best_distance)
+                'distance': float(best_distance),
+                'capture_image': filename
             }), 200
         
         # No confident match
@@ -595,6 +859,99 @@ def get_violations():
     return jsonify(violations)
 
 
+@app.route('/violations/confirm', methods=['POST'])
+@token_required
+def confirm_violation():
+    """Confirm and record a violation (increments bunk_count and inserts violation).
+
+    Expected JSON body:
+      {
+        student_id,
+        location,
+        confidence,   # percentage 0-100
+        distance,
+        image_filename
+      }
+    """
+    data = request.get_json() or {}
+    student_id = data.get('student_id')
+    location = data.get('location', 'Unknown')
+    confidence = data.get('confidence')
+    distance = data.get('distance')
+    image_filename = data.get('image_filename')
+
+    if not student_id:
+        return jsonify({'success': False, 'error': 'student_id required'}), 400
+
+    db = get_db()
+    student = db.students.find_one({'student_id': student_id})
+    if not student:
+        return jsonify({'success': False, 'error': 'student not found'}), 404
+
+    try:
+        db.students.update_one({'student_id': student_id}, {'$inc': {'bunk_count': 1}, '$set': {'updated_at': datetime.datetime.now()}})
+    except Exception as e:
+        print(f"[ERROR] Failed to increment bunk_count for {student_id}: {e}")
+        return jsonify({'success': False, 'error': 'failed to update student'}), 500
+
+    try:
+        violation = {
+            'student_id': student_id,
+            'student_name': student.get('name'),
+            'dept': student.get('dept'),
+            'location': location,
+            'timestamp': datetime.datetime.now(),
+            'confidence': (float(confidence) / 100.0) if confidence is not None else None,
+            'distance': float(distance) if distance is not None else None,
+            'image': image_filename
+        }
+        db.violations.insert_one(violation)
+    except Exception as e:
+        print(f"[ERROR] Failed to insert violation for {student_id}: {e}")
+        return jsonify({'success': False, 'error': 'failed to record violation'}), 500
+
+    return jsonify({'success': True, 'message': 'Violation recorded'}), 200
+
+
+def migrate_image_filenames():
+    """Migration helper: ensure students with embeddings have image_filename set.
+    For each student with embedding and missing image_filename, check for
+    storage/training/<student_id>.png and set image_filename if found.
+    Returns a summary dict.
+    """
+    db = get_db()
+    query = {'embedding': {'$exists': True, '$ne': None}, '$or': [{'image_filenames': {'$exists': False}}, {'image_filenames': {'$size': 0}}]}
+    candidates = list(db.students.find(query))
+    summary = {'checked': len(candidates), 'updated': 0}
+    for s in candidates:
+        sid = s.get('student_id')
+        if not sid:
+            continue
+        # find all files in training storage that start with student_id
+        matches = list(STORAGE_TRAINING.glob(f"{sid}*"))
+        if not matches:
+            continue
+        filenames = [p.name for p in matches]
+        try:
+            db.students.update_one({'_id': s['_id']}, {'$set': {'image_filenames': filenames, 'updated_at': datetime.datetime.now()}})
+            summary['updated'] += 1
+            print(f"[MIGRATE] Set image_filenames for {sid} -> {filenames}")
+        except Exception as e:
+            print(f"[MIGRATE] Failed to update {sid}: {e}")
+    return summary
+
+
+@app.route('/students/migrate_image_filenames', methods=['POST'])
+@token_required
+def migrate_image_filenames_endpoint():
+    try:
+        res = migrate_image_filenames()
+        return jsonify({'status': 'done', 'summary': res}), 200
+    except Exception as e:
+        print(f"[ERROR] migrate_image_filenames_endpoint: {e}")
+        return jsonify({'status': 'error', 'error': str(e)}), 500
+
+
 @app.route('/timetable', methods=['GET'])
 def get_timetable():
     """Get student timetable."""
@@ -623,6 +980,10 @@ def serve_storage(filename):
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
+
+# Call sync at startup to ensure DB matches filesystem
+print("[STARTUP] Running database/filesystem sync...")
+sync_training_images_with_db()
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000, debug=True)
