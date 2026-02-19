@@ -17,3 +17,36 @@ storage/training/
 storage/uploads/
 
 
+# Python
+backend/venv310/
+venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.so
+
+# Environment
+.env
+
+# Node
+node_modules/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Virtual Environments
+venv/
+backend/venv310/
+
+# Python cache
+__pycache__/
+*.pyc
+
+# Environment variables
+.env
+
+# Storage uploads (optional)
+backend/storage/uploads/
+
