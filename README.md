@@ -76,9 +76,9 @@ MongoDB Database
 File Storage (training / uploads)
 
 
+## 📂 Project Structure
 
-## 🗂 Project Structure
-
+```
 e2e/
 │
 ├── backend/
@@ -97,6 +97,8 @@ e2e/
 │   └── public/
 │
 └── README.md
+```
+
 
 
 
