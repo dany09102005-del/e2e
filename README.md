@@ -1,11 +1,11 @@
 # 🎓 AttendGuard  
-## AI-Powered Student Attendance Violation Detection System
+## Student Attendance Violation Detection System
 
 AttendGuard is a full-stack, deep learning–based face recognition system designed to detect and record student attendance violations. The system captures an image, identifies the student using high-accuracy facial embeddings, and logs violations securely in MongoDB.
 
 It leverages a ResNet-based deep learning model through the `face_recognition` library to generate 128-dimensional face embeddings for robust and reliable identity matching.
 
----
+
 
 ## 📌 Project Overview
 
@@ -20,7 +20,7 @@ AttendGuard automates attendance violation monitoring by:
 
 This system is suitable for campus security monitoring, attendance tracking, and smart surveillance applications.
 
----
+
 
 ## 🚀 Key Features
 
@@ -35,7 +35,7 @@ This system is suitable for campus security monitoring, attendance tracking, and
 - Secure Secret Key Handling via `.env`
 - Training Folder & Database Synchronization
 
----
+
 
 ## 🧠 Face Recognition Pipeline
 
@@ -61,7 +61,7 @@ Confidence = (1 − Distance) × 100
 6. Returns matched student details and image references.
 7. On confirmation, violation is recorded in MongoDB.
 
----
+
 
 ## 🏗 System Architecture
 
@@ -75,7 +75,7 @@ MongoDB Database
 ↓  
 File Storage (training / uploads)
 
----
+
 
 ## 🗂 Project Structure
 
@@ -98,7 +98,7 @@ e2e/
 │
 └── README.md
 
----
+
 
 ## 🛠 Technology Stack
 
@@ -122,7 +122,7 @@ e2e/
   - violations
   - users
 
----
+
 
 ## ⚙️ Installation Guide
 
@@ -131,7 +131,7 @@ e2e/
 git clone https://github.com/your-username/e2e.git  
 cd e2e
 
----
+
 
 ### 2️⃣ Backend Setup
 
@@ -153,7 +153,7 @@ Run backend:
 Backend runs at:  
 http://localhost:5000
 
----
+
 
 ### 3️⃣ Frontend Setup
 
@@ -164,7 +164,7 @@ npm run dev
 Frontend runs at:  
 http://localhost:3000
 
----
+
 
 ## 🔐 API Endpoints
 
@@ -185,7 +185,7 @@ http://localhost:3000
 - POST /violations/confirm
 - GET /violations
 
----
+
 
 ## 📊 Database Schema
 
@@ -212,7 +212,7 @@ http://localhost:3000
 - registered_image
 - timestamp
 
----
+
 
 ## 🔒 Security
 
@@ -223,7 +223,7 @@ http://localhost:3000
 - Virtual environment excluded from repository
 - Image validation for single-face enforcement
 
----
+
 
 ## 📈 Performance
 
@@ -232,7 +232,7 @@ http://localhost:3000
 - Optimized threshold for high-accuracy matching
 - Robust under lighting and pose variations
 
----
+
 
 ## 🎯 Applications
 
@@ -244,8 +244,4 @@ http://localhost:3000
 
 ---
 
-## 👨‍💻 Author
 
-AI-powered full-stack attendance violation detection system built using deep learning, REST architecture, and modern frontend technologies. Designed with scalability, security, and accuracy in mind.
-
----
