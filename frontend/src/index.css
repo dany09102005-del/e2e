@@ -280,3 +280,69 @@ select:focus {
 .btn-premium:active {
   transform: scale(0.98);
 }
+
+/* Filter Bar & Register Action */
+.filter-bar {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  background: var(--surface);
+  padding: 24px 32px;
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-sm);
+  margin-bottom: 32px;
+  border: 1px solid var(--border);
+  flex-wrap: wrap;
+}
+
+.filter-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  flex: 1;
+  min-width: 140px;
+}
+
+.filter-label {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-left: 4px;
+}
+
+.filter-input {
+  width: 100%;
+}
+
+.btn-register-premium {
+  background: linear-gradient(135deg, var(--accent-blue), #5856D6);
+  color: white;
+  border-radius: 50px;
+  padding: 12px 28px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  box-shadow: 0 8px 20px rgba(0, 122, 255, 0.25);
+  transition: all var(--transition-fast);
+  margin-left: auto;
+  /* Pushes to the right */
+  border: none;
+}
+
+.btn-register-premium:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 12px 24px rgba(0, 122, 255, 0.35);
+  filter: brightness(1.1);
+}
+
+.btn-register-premium:active {
+  transform: scale(0.96);
+}
+
+.btn-register-premium svg {
+  width: 18px;
+  height: 18px;
+}

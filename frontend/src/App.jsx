@@ -13,8 +13,10 @@ import {
   Legend,
 } from 'chart.js'
 import { Line, Bar, Doughnut } from 'react-chartjs-2'
+import { Routes, Route, useNavigate, useLocation, Navigate, Link } from 'react-router-dom'
 import StudentProfileSidePanel from './StudentProfileSidePanel'
 import './App.css'
+import './index.css'
 
 ChartJS.register(
   CategoryScale, LinearScale, PointElement, LineElement,
@@ -33,11 +35,6 @@ const Icons = {
   users: (
     <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
       <path strokeLinecap="round" strokeLinejoin="round" d="M15 19.128a9.38 9.38 0 002.625.372 9.337 9.337 0 004.121-.952 4.125 4.125 0 00-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128v.106A12.318 12.318 0 018.624 21c-2.331 0-4.512-.645-6.374-1.766l-.001-.109a6.375 6.375 0 0111.964-3.07M12 6.375a3.375 3.375 0 11-6.75 0 3.375 3.375 0 016.75 0zm8.25 2.25a2.625 2.625 0 11-5.25 0 2.625 2.625 0 015.25 0z" />
-    </svg>
-  ),
-  timetable: (
-    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
-      <path strokeLinecap="round" strokeLinejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z" />
     </svg>
   ),
   alert: (
@@ -99,6 +96,16 @@ const Icons = {
   plus: (
     <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
       <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+    </svg>
+  ),
+  chevronLeft: (
+    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+      <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5" />
+    </svg>
+  ),
+  chevronRight: (
+    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+      <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
     </svg>
   ),
 }
@@ -199,45 +206,49 @@ function LoginPage({ onLogin }) {
 }
 
 // ─────────── SIDEBAR ───────────
-function Sidebar({ active, setActive, onLogout }) {
-  const items = [
-    { key: 'dashboard', label: 'Dashboard', icon: Icons.dashboard },
-    { key: 'students', label: 'Students', icon: Icons.users },
-    { key: 'timetable', label: 'Timetable', icon: Icons.timetable },
-    { key: 'detect', label: 'Detect', icon: Icons.detect },
-    { key: 'violations', label: 'Violations', icon: Icons.alert },
-    { key: 'reports', label: 'Reports', icon: Icons.chart },
+function Sidebar({ isCollapsed, onToggle, onLogout }) {
+  const location = useLocation();
+  const menu = [
+    { id: 'dashboard', label: 'Dashboard', icon: Icons.dashboard, path: '/dashboard' },
+    { id: 'students', label: 'Students', icon: Icons.users, path: '/students' },
+    { id: 'detect', label: 'Detect', icon: Icons.detect, path: '/detect' },
+    { id: 'violations', label: 'Violations', icon: Icons.alert, path: '/violations' },
+    { id: 'reports', label: 'Reports', icon: Icons.chart, path: '/reports' },
+    { id: 'settings', label: 'Settings', icon: Icons.settings, path: '/settings' },
   ]
 
   return (
-    <aside className="sidebar">
+    <aside className={`sidebar ${isCollapsed ? 'collapsed' : ''}`}>
+      <button className="sidebar-toggle" onClick={onToggle}>
+        {isCollapsed ? Icons.chevronRight : Icons.chevronLeft}
+      </button>
+
       <div className="sidebar-brand">
-        <div className="sidebar-brand-icon">{Icons.shield}</div>
-        <div>
+        <div className="logo-icon">{Icons.brain}</div>
+        <div className="brand-info">
           <h2>AttendGuard</h2>
           <span>Monitoring System</span>
         </div>
       </div>
+
       <nav className="sidebar-nav">
-        {items.map(item => (
-          <button
-            key={item.key}
-            className={`sidebar-item${active === item.key ? ' active' : ''}`}
-            onClick={() => setActive(item.key)}
+        {menu.map(item => (
+          <Link
+            key={item.id}
+            to={item.path}
+            className={`sidebar-item ${location.pathname === item.path ? 'active' : ''}`}
+            title={isCollapsed ? item.label : ''}
           >
             {item.icon}
-            {item.label}
-          </button>
+            <span>{item.label}</span>
+          </Link>
         ))}
       </nav>
-      <div className="sidebar-bottom">
-        <button className="sidebar-item" onClick={() => setActive('settings')}>
-          {Icons.settings}
-          Settings
-        </button>
-        <button className="sidebar-item" onClick={onLogout}>
+
+      <div className="sidebar-footer">
+        <button className="logout-btn" onClick={onLogout} title={isCollapsed ? 'Logout' : ''}>
           {Icons.logout}
-          Sign Out
+          <span>Logout</span>
         </button>
       </div>
     </aside>
@@ -245,14 +256,42 @@ function Sidebar({ active, setActive, onLogout }) {
 }
 
 // ─────────── HEADER ───────────
-function Header({ dark, onToggleTheme }) {
+function Header({ dark, onToggleTheme, onAction }) {
+  const location = useLocation();
+
+  const getHeaderContent = (path) => {
+    switch (path) {
+      case '/dashboard':
+        return { title: 'Dashboard', subtitle: "Welcome back. Here's your overview." };
+      case '/students':
+        return { title: 'Students', subtitle: 'Registered and monitored students.' };
+      case '/detect':
+        return { title: 'Detect', subtitle: 'Identify student violations.' };
+      case '/violations':
+        return { title: 'Violations', subtitle: 'Review recorded incidents.' };
+      case '/reports':
+        return { title: 'Reports', subtitle: 'Generate monitoring reports.' };
+      case '/settings':
+        return { title: 'Settings', subtitle: 'Configure system preferences.' };
+      default:
+        return { title: 'Dashboard', subtitle: "Welcome back. Here's your overview." };
+    }
+  };
+
+  const { title, subtitle } = getHeaderContent(location.pathname);
+
   return (
     <header className="header">
       <div className="header-left">
-        <h1>Dashboard</h1>
-        <p>Welcome back. Here's your overview.</p>
+        <h1>{title}</h1>
+        <p>{subtitle}</p>
       </div>
       <div className="header-right">
+        {location.pathname === '/students' && onAction && (
+          <button className="btn-register-premium" onClick={onAction} style={{ padding: '8px 16px', fontSize: '13px', borderRadius: '12px' }}>
+            {Icons.plus} Register
+          </button>
+        )}
         {onToggleTheme && <ThemeToggle dark={dark} onToggle={onToggleTheme} />}
         <button className="notification-btn">
           {Icons.bell}
@@ -265,7 +304,7 @@ function Header({ dark, onToggleTheme }) {
 }
 
 // ─────────── DASHBOARD ───────────
-function Dashboard({ headerProps }) {
+function Dashboard() {
   // KPI data
   const kpis = [
     {
@@ -273,12 +312,6 @@ function Dashboard({ headerProps }) {
       color: 'blue', icon: Icons.users,
       sparkline: [18, 22, 19, 25, 27, 23, 29],
       accentColor: '#007AFF',
-    },
-    {
-      label: 'Classes Tracking', value: '164', badge: '+3%', badgeType: 'up',
-      color: 'green', icon: Icons.timetable,
-      sparkline: [12, 14, 11, 16, 15, 18, 17],
-      accentColor: '#34C759',
     },
     {
       label: 'Daily Violations', value: '23', badge: '-8%', badgeType: 'down',
@@ -471,8 +504,6 @@ function Dashboard({ headerProps }) {
 
   return (
     <>
-      <Header {...headerProps} />
-
       {/* KPI Cards */}
       <div className="kpi-grid">
         {kpis.map((kpi, i) => (
@@ -573,7 +604,7 @@ function Dashboard({ headerProps }) {
 }
 
 // ─────────── STUDENTS PAGE ───────────
-function StudentsPage({ students, token, onRefresh, headerProps, onStudentClick }) {
+function StudentsPage({ students, token, onRefresh, onStudentClick, showRegisterModal, setShowRegisterModal }) {
   const [selectedStudent, setSelectedStudent] = useState(null)
   const [filter, setFilter] = useState({
     program: 'B.Tech',
@@ -584,7 +615,6 @@ function StudentsPage({ students, token, onRefresh, headerProps, onStudentClick 
   })
   const [isApplied, setIsApplied] = useState(false)
   const [activeTab, setActiveTab] = useState('overview')
-  const [showRegisterModal, setShowRegisterModal] = useState(false)
   const [regForm, setRegForm] = useState({
     name: '', roll_no: '', dept: 'CSE', year: '3rd Year', phone: '', email: '', threshold: '75', image: null
   })
@@ -616,9 +646,7 @@ function StudentsPage({ students, token, onRefresh, headerProps, onStudentClick 
   }
 
   return (
-    <div className="page-container">
-      <Header {...headerProps} />
-
+    <div className="page-content">
       <div className="students-container">
         {/* Filter Bar */}
         <div className="filter-bar">
@@ -652,17 +680,8 @@ function StudentsPage({ students, token, onRefresh, headerProps, onStudentClick 
               {mockDetails['CSE'].map(s => <option key={s}>{s}</option>)}
             </select>
           </div>
-          <button className="btn-reset" onClick={() => {
-            setFilter({ program: 'B.Tech', batch: '2021-25', dept: 'CSE', sem: '6', section: 'A' })
-            setIsApplied(false)
-          }}>Reset</button>
-
-          <button className="primary" style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 20px' }} onClick={() => setIsApplied(true)}>
+          <button className="btn-primary" onClick={() => setIsApplied(true)}>
             Fetch Records
-          </button>
-
-          <button className="secondary" style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8, padding: '10px 16px', border: '1px solid var(--border)' }} onClick={() => setShowRegisterModal(true)}>
-            {Icons.plus} Register
           </button>
         </div>
 
@@ -822,8 +841,8 @@ function StudentsPage({ students, token, onRefresh, headerProps, onStudentClick 
               </div>
 
               <div className="form-actions">
-                <button type="button" className="secondary" style={{ padding: '10px 24px' }} onClick={() => setShowRegisterModal(false)}>Cancel</button>
-                <button type="submit" className="primary" style={{ padding: '10px 32px' }}>Save Student</button>
+                <button type="button" className="btn-premium btn-secondary" onClick={() => setShowRegisterModal(false)}>Cancel</button>
+                <button type="submit" className="btn-premium btn-primary">Save Student</button>
               </div>
             </form>
           </div>
@@ -898,8 +917,8 @@ function StudentsPage({ students, token, onRefresh, headerProps, onStudentClick 
               </div>
 
               <div style={{ display: 'flex', gap: 12, marginTop: 'auto' }}>
-                <button className="primary" style={{ flex: 1, padding: '10px' }}>Issue Warning</button>
-                <button className="secondary" style={{ padding: '10px 20px' }} onClick={() => setSelectedStudent(null)}>Close</button>
+                <button className="btn-premium btn-primary" style={{ flex: 1 }}>Issue Warning</button>
+                <button className="btn-premium btn-secondary" onClick={() => setSelectedStudent(null)}>Close</button>
               </div>
             </div>
           </div>
@@ -909,30 +928,8 @@ function StudentsPage({ students, token, onRefresh, headerProps, onStudentClick 
   )
 }
 
-// ─────────── TIMETABLE PAGE ───────────
-function TimetablePage({ timetable, headerProps }) {
-  return (
-    <div className="page-container">
-      <Header {...headerProps} />
-      <table className="data-table">
-        <thead>
-          <tr><th>Day</th><th>Time</th><th>Subject</th><th>Class</th><th>Room</th></tr>
-        </thead>
-        <tbody>
-          {timetable.map((t, i) => (
-            <tr key={i}>
-              <td>{t.day}</td><td>{t.time}</td><td>{t.subject}</td><td>{t.class_name}</td><td>{t.room}</td>
-            </tr>
-          ))}
-          {timetable.length === 0 && <tr><td colSpan={5} style={{ textAlign: 'center', color: 'var(--text-tertiary)', padding: 40 }}>No timetable data</td></tr>}
-        </tbody>
-      </table>
-    </div>
-  )
-}
-
 // ─────────── DETECT PAGE ───────────
-function DetectPage({ onDetect, headerProps }) {
+function DetectPage({ onDetect }) {
   const [classId, setClassId] = useState('')
   const [period, setPeriod] = useState('')
   const [file, setFile] = useState(null)
@@ -970,8 +967,7 @@ function DetectPage({ onDetect, headerProps }) {
   }
 
   return (
-    <div className="page-container">
-      <Header {...headerProps} />
+    <div className="page-content">
       <div className="form-card" style={{ maxWidth: 600 }}>
         <h3>Detect Violations</h3>
         <form onSubmit={handleSubmit}>
@@ -987,7 +983,7 @@ function DetectPage({ onDetect, headerProps }) {
             <label>Classroom Image</label>
             <input type="file" accept="image/*" onChange={e => setFile(e.target.files[0])} />
           </div>
-          <button type="submit" className="primary" style={{ width: '100%', padding: '12px', marginTop: 8 }} disabled={loading}>
+          <button type="submit" className="btn-premium btn-primary" style={{ width: '100%', marginTop: 8 }} disabled={loading}>
             {loading ? 'Analyzing...' : 'Analyze Image'}
           </button>
         </form>
@@ -997,7 +993,7 @@ function DetectPage({ onDetect, headerProps }) {
             <p style={{ fontSize: 14, color: 'var(--text-secondary)', marginBottom: 8 }}>
               Absent students: <strong style={{ color: 'var(--text-primary)' }}>{result.absentees?.join(', ') || 'None'}</strong>
             </p>
-            <button className="primary" onClick={handleConfirm} style={{ marginTop: 8, width: '100%', padding: 12 }}>Confirm & Save</button>
+            <button className="btn-premium btn-primary" onClick={handleConfirm} style={{ marginTop: 8, width: '100%' }}>Confirm & Save</button>
           </div>
         )}
       </div>
@@ -1006,10 +1002,9 @@ function DetectPage({ onDetect, headerProps }) {
 }
 
 // ─────────── VIOLATIONS PAGE ───────────
-function ViolationsPage({ violations, headerProps }) {
+function ViolationsPage({ violations }) {
   return (
-    <div className="page-container">
-      <Header {...headerProps} />
+    <div className="page-content">
       <table className="data-table">
         <thead>
           <tr><th>Student</th><th>Roll No</th><th>Type</th><th>Date</th><th>Status</th></tr>
@@ -1032,15 +1027,14 @@ function ViolationsPage({ violations, headerProps }) {
 }
 
 // ─────────── REPORTS PAGE ───────────
-function ReportsPage({ students, violations, headerProps }) {
+function ReportsPage({ students, violations }) {
   const deptMap = {}
   violations.forEach(v => {
     deptMap[v.department || 'Unknown'] = (deptMap[v.department || 'Unknown'] || 0) + 1
   })
 
   return (
-    <div className="page-container">
-      <Header {...headerProps} />
+    <div className="page-content">
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 24 }}>
         <div className="chart-card">
           <div className="chart-card-header"><h3>Summary</h3></div>
@@ -1077,10 +1071,9 @@ function ReportsPage({ students, violations, headerProps }) {
 }
 
 // ─────────── SETTINGS PAGE ───────────
-function SettingsPage({ headerProps }) {
+function SettingsPage() {
   return (
-    <div className="page-container">
-      <Header {...headerProps} />
+    <div className="page-content">
       <div className="form-card">
         <h3>Settings</h3>
         <div className="form-group">
@@ -1095,7 +1088,7 @@ function SettingsPage({ headerProps }) {
           <label>Violation Threshold (per semester)</label>
           <input type="number" defaultValue={5} />
         </div>
-        <button className="primary" style={{ marginTop: 12, padding: '12px 24px' }}>Save Changes</button>
+        <button className="btn-premium btn-primary" style={{ marginTop: 12 }}>Save Changes</button>
       </div>
     </div>
   )
@@ -1103,11 +1096,10 @@ function SettingsPage({ headerProps }) {
 
 // ─────────── MAIN APP ───────────
 export default function App() {
+  const navigate = useNavigate()
   const [token, setToken] = useState(localStorage.getItem('token'))
-  const [page, setPage] = useState('dashboard')
   const [students, setStudents] = useState([])
   const [violations, setViolations] = useState([])
-  const [timetable, setTimetable] = useState([])
   const [dark, setDark] = useState(() => {
     const saved = localStorage.getItem('theme')
     if (saved) return saved === 'dark'
@@ -1115,6 +1107,8 @@ export default function App() {
   })
   const [selectedStudentForPanel, setSelectedStudentForPanel] = useState(null)
   const [isPanelOpen, setIsPanelOpen] = useState(false)
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false)
+  const [showRegisterModal, setShowRegisterModal] = useState(false)
 
   // Apply theme to document
   useEffect(() => {
@@ -1130,14 +1124,12 @@ export default function App() {
 
   const loadData = async () => {
     try {
-      const [sRes, vRes, tRes] = await Promise.all([
+      const [sRes, vRes] = await Promise.all([
         axios.get(`${API}/students`).catch(() => ({ data: [] })),
         axios.get(`${API}/violations`).catch(() => ({ data: [] })),
-        axios.get(`${API}/timetable`).catch(() => ({ data: [] })),
       ])
       setStudents(sRes.data || [])
       setViolations(vRes.data || [])
-      setTimetable(tRes.data || [])
     } catch { }
   }
 
@@ -1149,45 +1141,48 @@ export default function App() {
   const handleLogout = () => {
     localStorage.removeItem('token')
     setToken(null)
-    setPage('dashboard')
+    navigate('/login')
   }
 
   if (!token) return <LoginPage onLogin={handleLogin} />
 
-  // Thread dark + toggle through to all page headers
   const headerProps = { dark, onToggleTheme: toggleTheme }
 
-  const renderPage = () => {
-    switch (page) {
-      case 'dashboard': return <Dashboard headerProps={headerProps} />
-      case 'students': return (
-        <StudentsPage 
-          students={students} 
-          token={token} 
-          onRefresh={loadData} 
-          headerProps={headerProps} 
-          onStudentClick={(s) => {
-            setSelectedStudentForPanel(s);
-            setIsPanelOpen(true);
-          }}
-        />
-      )
-      case 'timetable': return <TimetablePage timetable={timetable} headerProps={headerProps} />
-      case 'detect': return <DetectPage onDetect={loadData} headerProps={headerProps} />
-      case 'violations': return <ViolationsPage violations={violations} headerProps={headerProps} />
-      case 'reports': return <ReportsPage students={students} violations={violations} headerProps={headerProps} />
-      case 'settings': return <SettingsPage headerProps={headerProps} />
-      default: return <Dashboard headerProps={headerProps} />
-    }
-  }
-
   return (
-    <div className="app-layout">
-      <Sidebar active={page} setActive={setPage} onLogout={handleLogout} />
+    <div className="app-layout" style={{ '--sidebar-width': isSidebarCollapsed ? '80px' : '230px' }}>
+      <Sidebar
+        isCollapsed={isSidebarCollapsed}
+        onToggle={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
+        onLogout={handleLogout}
+      />
       <main className="main-content">
-        {renderPage()}
+        <Header
+          {...headerProps}
+          onAction={() => setShowRegisterModal(true)}
+        />
+        <Routes>
+          <Route path="/" element={<Navigate to="/dashboard" />} />
+          <Route path="/dashboard" element={<Dashboard />} />
+          <Route path="/students" element={
+            <StudentsPage
+              students={students}
+              token={token}
+              onRefresh={loadData}
+              showRegisterModal={showRegisterModal}
+              setShowRegisterModal={setShowRegisterModal}
+              onStudentClick={(s) => {
+                setSelectedStudentForPanel(s);
+                setIsPanelOpen(true);
+              }}
+            />
+          } />
+          <Route path="/detect" element={<DetectPage onDetect={loadData} />} />
+          <Route path="/violations" element={<ViolationsPage violations={violations} />} />
+          <Route path="/reports" element={<ReportsPage students={students} violations={violations} />} />
+          <Route path="/settings" element={<SettingsPage />} />
+        </Routes>
       </main>
-      <StudentProfileSidePanel 
+      <StudentProfileSidePanel
         student={selectedStudentForPanel}
         isOpen={isPanelOpen}
         onClose={() => setIsPanelOpen(false)}
