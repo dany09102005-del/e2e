@@ -206,7 +206,7 @@ function LoginPage({ onLogin }) {
 }
 
 // ─────────── SIDEBAR ───────────
-function Sidebar({ isCollapsed, onToggle, onLogout }) {
+function Sidebar({ isCollapsed, onLogout, onMouseEnter, onMouseLeave }) {
   const location = useLocation();
   const menu = [
     { id: 'dashboard', label: 'Dashboard', icon: Icons.dashboard, path: '/dashboard' },
@@ -218,10 +218,11 @@ function Sidebar({ isCollapsed, onToggle, onLogout }) {
   ]
 
   return (
-    <aside className={`sidebar ${isCollapsed ? 'collapsed' : ''}`}>
-      <button className="sidebar-toggle" onClick={onToggle}>
-        {isCollapsed ? Icons.chevronRight : Icons.chevronLeft}
-      </button>
+    <aside
+      className={`sidebar ${isCollapsed ? 'collapsed' : ''}`}
+      onMouseEnter={onMouseEnter}
+      onMouseLeave={onMouseLeave}
+    >
 
       <div className="sidebar-brand">
         <div className="logo-icon">{Icons.brain}</div>
@@ -268,7 +269,7 @@ function Header({ dark, onToggleTheme, onAction }) {
       case '/detect':
         return { title: 'Detect', subtitle: 'Identify student violations.' };
       case '/violations':
-        return { title: 'Violations', subtitle: 'Review recorded incidents.' };
+        return { title: 'Violations', subtitle: 'Review recorded incidents and monitoring logs.' };
       case '/reports':
         return { title: 'Reports', subtitle: 'Generate monitoring reports.' };
       case '/settings':
@@ -297,7 +298,9 @@ function Header({ dark, onToggleTheme, onAction }) {
           {Icons.bell}
           <span className="notification-dot"></span>
         </button>
-        <div className="avatar">SR</div>
+        <div className="avatar">
+          {Icons.users}
+        </div>
       </div>
     </header>
   )
@@ -308,45 +311,49 @@ function Dashboard() {
   // KPI data
   const kpis = [
     {
-      label: 'Students Monitored', value: '2,847', badge: '+12%', badgeType: 'up',
-      color: 'blue', icon: Icons.users,
-      sparkline: [18, 22, 19, 25, 27, 23, 29],
-      accentColor: '#007AFF',
+      title: 'Students Monitoring',
+      value: '1,284',
+      subtext: 'Active this semester',
+      icon: Icons.users
     },
     {
-      label: 'Daily Violations', value: '23', badge: '-8%', badgeType: 'down',
-      color: 'orange', icon: Icons.alert,
-      sparkline: [30, 28, 35, 25, 22, 27, 23],
-      accentColor: '#FF9500',
+      title: 'Total Violations',
+      value: '248',
+      subtext: 'Current semester',
+      icon: Icons.alert
+    },
+    {
+      title: "Today's Activity",
+      value: '12',
+      subtext: 'Compared to yesterday: +2',
+      icon: Icons.activity
+    },
+    {
+      title: 'Most Active Location',
+      value: 'Central Block',
+      subtext: '42 incidents this month',
+      icon: Icons.mapPin
     }
-  ]
+  ];
 
   // Line chart – Violations Trend
-  const lineData = {
-    labels: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'],
+  const monthlyData = {
+    labels: ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun'],
     datasets: [{
-      label: 'Violations',
-      data: [18, 25, 20, 32, 28, 15, 23],
-      borderColor: '#007AFF',
-      backgroundColor: (ctx) => {
-        const chart = ctx.chart
-        const { ctx: context, chartArea } = chart
-        if (!chartArea) return 'rgba(0,122,255,0.1)'
-        const gradient = context.createLinearGradient(0, chartArea.top, 0, chartArea.bottom)
-        gradient.addColorStop(0, 'rgba(0, 122, 255, 0.15)')
-        gradient.addColorStop(1, 'rgba(0, 122, 255, 0.0)')
-        return gradient
-      },
+      label: 'Monthly Violations',
+      data: [65, 59, 80, 81, 56, 40],
       fill: true,
-      tension: 0.45,
-      borderWidth: 2.5,
+      borderColor: '#007AFF',
+      backgroundColor: 'rgba(0, 122, 255, 0.04)',
+      tension: 0.4,
       pointRadius: 0,
       pointHoverRadius: 6,
       pointHoverBackgroundColor: '#007AFF',
       pointHoverBorderColor: '#fff',
-      pointHoverBorderWidth: 2,
-    }],
-  }
+      pointHoverBorderWidth: 3,
+      borderWidth: 3
+    }]
+  };
 
   const lineOptions = {
     responsive: true,
@@ -355,19 +362,21 @@ function Dashboard() {
     plugins: {
       legend: { display: false },
       tooltip: {
-        backgroundColor: 'rgba(255,255,255,0.92)',
+        backgroundColor: 'rgba(255,255,255,0.9)',
+        backdropFilter: 'blur(10px)',
         titleColor: '#1D1D1F',
-        bodyColor: '#86868B',
-        borderColor: 'rgba(0,0,0,0.08)',
+        bodyColor: '#6E6E73',
+        borderColor: '#E5E5EA',
         borderWidth: 1,
-        cornerRadius: 12,
-        padding: 12,
-        titleFont: { family: 'Inter', size: 13, weight: '600' },
-        bodyFont: { family: 'Inter', size: 12 },
+        cornerRadius: 16,
+        padding: 16,
+        titleFont: { family: 'Inter', size: 14, weight: '600' },
+        bodyFont: { family: 'Inter', size: 13 },
         displayColors: false,
+        usePointStyle: true,
         callbacks: {
           title: (items) => items[0].label,
-          label: (item) => `${item.parsed.y} violations`,
+          label: (item) => `${item.parsed.y} incidents`,
         },
       },
     },
@@ -376,16 +385,17 @@ function Dashboard() {
         grid: { display: false },
         border: { display: false },
         ticks: {
-          color: '#AEAEB2', font: { family: 'Inter', size: 12 },
-          padding: 8,
+          color: '#8E8E93', font: { family: 'Inter', size: 12 },
+          padding: 12,
         },
       },
       y: {
-        grid: { color: 'rgba(0,0,0,0.04)', drawBorder: false },
+        grid: { color: 'rgba(0, 0, 0, 0.03)', drawBorder: false },
         border: { display: false },
         ticks: {
-          color: '#AEAEB2', font: { family: 'Inter', size: 12 },
-          padding: 12, maxTicksLimit: 5,
+          color: '#8E8E93', font: { family: 'Inter', size: 11, weight: '500' },
+          padding: 12, maxTicksLimit: 4,
+          callback: (v) => v === 0 ? '' : v
         },
       },
     },
@@ -398,17 +408,25 @@ function Dashboard() {
       label: 'Violations',
       data: [42, 28, 35, 18, 24, 31],
       backgroundColor: [
-        'rgba(0, 122, 255, 0.7)',
-        'rgba(88, 86, 214, 0.7)',
-        'rgba(175, 82, 222, 0.7)',
-        'rgba(52, 199, 89, 0.7)',
-        'rgba(255, 149, 0, 0.7)',
-        'rgba(255, 59, 48, 0.7)',
+        'rgba(10, 132, 255, 0.3)', // CSE - Light Blue
+        'rgba(175, 82, 222, 0.3)', // ECE - Light Purple
+        'rgba(255, 149, 0, 0.3)',  // MECH - Light Orange
+        'rgba(52, 199, 89, 0.3)',  // CIVIL - Light Green
+        'rgba(255, 59, 48, 0.3)',  // EEE - Light Red
+        'rgba(88, 86, 214, 0.3)',  // IT - Indigo
       ],
-      borderRadius: 8,
+      hoverBackgroundColor: [
+        'rgba(10, 132, 255, 0.5)',
+        'rgba(175, 82, 222, 0.5)',
+        'rgba(255, 149, 0, 0.5)',
+        'rgba(52, 199, 89, 0.5)',
+        'rgba(255, 59, 48, 0.5)',
+        'rgba(88, 86, 214, 0.5)',
+      ],
+      borderRadius: 12,
       borderSkipped: false,
-      barPercentage: 0.6,
-      categoryPercentage: 0.7,
+      barPercentage: 0.5,
+      categoryPercentage: 0.6,
     }],
   }
 
@@ -418,15 +436,16 @@ function Dashboard() {
     plugins: {
       legend: { display: false },
       tooltip: {
-        backgroundColor: 'rgba(255,255,255,0.92)',
+        backgroundColor: 'rgba(255,255,255,0.9)',
+        backdropFilter: 'blur(10px)',
         titleColor: '#1D1D1F',
-        bodyColor: '#86868B',
-        borderColor: 'rgba(0,0,0,0.08)',
+        bodyColor: '#6E6E73',
+        borderColor: '#E5E5EA',
         borderWidth: 1,
-        cornerRadius: 12,
-        padding: 12,
-        titleFont: { family: 'Inter', size: 13, weight: '600' },
-        bodyFont: { family: 'Inter', size: 12 },
+        cornerRadius: 16,
+        padding: 16,
+        titleFont: { family: 'Inter', size: 14, weight: '600' },
+        bodyFont: { family: 'Inter', size: 13 },
         displayColors: false,
       },
     },
@@ -435,17 +454,14 @@ function Dashboard() {
         grid: { display: false },
         border: { display: false },
         ticks: {
-          color: '#AEAEB2', font: { family: 'Inter', size: 12 },
-          padding: 8,
+          color: '#8E8E93', font: { family: 'Inter', size: 12 },
+          padding: 12,
         },
       },
       y: {
-        grid: { color: 'rgba(0,0,0,0.04)', drawBorder: false },
+        grid: { display: false },
         border: { display: false },
-        ticks: {
-          color: '#AEAEB2', font: { family: 'Inter', size: 12 },
-          padding: 12, maxTicksLimit: 5,
-        },
+        ticks: { display: false },
       },
     },
   }
@@ -456,40 +472,41 @@ function Dashboard() {
     datasets: [{
       data: [38, 20, 17],
       backgroundColor: [
-        '#007AFF',
+        '#0A84FF',
         '#AF52DE',
-        '#FF3B30',
+        '#FF453A',
       ],
       borderWidth: 0,
-      spacing: 3,
-      borderRadius: 4,
+      spacing: 6,
+      borderRadius: 10,
     }],
   }
 
   const donutOptions = {
     responsive: true,
     maintainAspectRatio: false,
-    cutout: '72%',
+    cutout: '85%',
     plugins: {
       legend: { display: false },
       tooltip: {
-        backgroundColor: 'rgba(255,255,255,0.92)',
+        backgroundColor: 'rgba(255,255,255,0.9)',
+        backdropFilter: 'blur(10px)',
         titleColor: '#1D1D1F',
-        bodyColor: '#86868B',
-        borderColor: 'rgba(0,0,0,0.08)',
+        bodyColor: '#6E6E73',
+        borderColor: '#E5E5EA',
         borderWidth: 1,
-        cornerRadius: 12,
-        padding: 12,
-        titleFont: { family: 'Inter', size: 13, weight: '600' },
-        bodyFont: { family: 'Inter', size: 12 },
+        cornerRadius: 16,
+        padding: 16,
+        titleFont: { family: 'Inter', size: 14, weight: '600' },
+        bodyFont: { family: 'Inter', size: 13 },
       },
     },
   }
 
   const donutLegend = [
-    { label: 'Late Arrival', color: '#007AFF' },
+    { label: 'Late Arrival', color: '#0A84FF' },
     { label: 'Dress Code', color: '#AF52DE' },
-    { label: 'Bunk', color: '#FF3B30' },
+    { label: 'Bunk', color: '#FF453A' },
   ]
 
   // Recent Activity
@@ -504,47 +521,35 @@ function Dashboard() {
 
   return (
     <>
-      {/* KPI Cards */}
-      <div className="kpi-grid">
+      {/* Row 1: KPI Cards */}
+      <div className="kpi-grid-new">
         {kpis.map((kpi, i) => (
-          <div className={`kpi-card ${kpi.color}`} key={i}>
-            <div className="kpi-header">
-              <div className={`kpi-icon ${kpi.color}`}>{kpi.icon}</div>
-              <span className={`kpi-badge ${kpi.badgeType}`}>{kpi.badge}</span>
-            </div>
-            <div className="kpi-value">{kpi.value}</div>
-            <div className="kpi-label">{kpi.label}</div>
-            <div className="kpi-sparkline">
-              <Sparkline data={kpi.sparkline} color={kpi.accentColor} />
+          <div className="kpi-card-new" key={i}>
+            <div className="kpi-icon-new-small">{kpi.icon}</div>
+            <div className="kpi-card-inner">
+              <div className="kpi-value-new">{kpi.value}</div>
+              <div className="kpi-title-new">{kpi.title}</div>
+              <div className="kpi-subtext-new">{kpi.subtext}</div>
             </div>
           </div>
         ))}
-
-        {/* Insight Card */}
-        <div className="kpi-card insight">
-          <div className="kpi-header">
-            <div className="kpi-icon purple">{Icons.brain}</div>
-            <span className="kpi-badge up" style={{ background: 'var(--accent-purple-soft)', color: 'var(--accent-purple)' }}>Insight</span>
-          </div>
-          <div className="insight-text">
-            Mechanical department shows <strong>18% higher</strong> bunk rate this week.
-          </div>
-          <div className="kpi-label" style={{ marginTop: 'auto' }}>AI Analysis</div>
-        </div>
       </div>
 
-      {/* Charts Row */}
-      <div className="charts-grid">
+      {/* Row 2: Violations Trend Chart */}
+      <div className="chart-row">
         <div className="chart-card">
           <div className="chart-card-header">
             <h3>Violations Trend</h3>
-            <span>Last 7 Days</span>
+            <span>Monthly View</span>
           </div>
           <div className="chart-wrapper">
-            <Line data={lineData} options={lineOptions} />
+            <Line data={monthlyData} options={lineOptions} />
           </div>
         </div>
+      </div>
 
+      {/* Row 3: Violations by Department & Violation Types */}
+      <div className="charts-grid">
         <div className="chart-card">
           <div className="chart-card-header">
             <h3>By Department</h3>
@@ -554,10 +559,7 @@ function Dashboard() {
             <Bar data={barData} options={barOptions} />
           </div>
         </div>
-      </div>
 
-      {/* Bottom Row */}
-      <div className="bottom-grid">
         <div className="bottom-card">
           <div className="bottom-card-header">
             <h3>Violation Types</h3>
@@ -579,7 +581,10 @@ function Dashboard() {
             ))}
           </div>
         </div>
+      </div>
 
+      {/* Row 4: Recent Activity */}
+      <div className="chart-row">
         <div className="bottom-card">
           <div className="bottom-card-header">
             <h3>Recent Activity</h3>
@@ -940,8 +945,8 @@ function DetectPage({ onDetect }) {
   const fileInputRef = useRef(null)
 
   const blockOptions = [
-    'A Block', 'B Block', 'C Block', 'D Block', 
-    'Central Block', 'U Block', 'N Block', 'Playground'
+    'A Block', 'B Block', 'C Block', 'D Block',
+    'U Block', 'Central Block', 'Playground'
   ];
 
   const handleFileChange = (e) => {
@@ -1042,7 +1047,7 @@ function DetectPage({ onDetect }) {
                 <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5" />
               </svg>
             </div>
-            <div style={{ fontWeight: 600, color: 'var(--text-primary)' }}>Upload classroom image</div>
+            <div style={{ fontWeight: 600, color: 'var(--text-primary)' }}>Upload image</div>
             <div style={{ fontSize: 13, color: 'var(--text-secondary)' }}>Drag & drop or click to browse</div>
             {file && (
               <div style={{ marginTop: 12, fontSize: 12, color: 'var(--accent-blue)', fontWeight: 500 }}>
@@ -1075,7 +1080,7 @@ function DetectPage({ onDetect }) {
               </svg>
               <h3>No image uploaded yet</h3>
               <p style={{ color: 'var(--text-tertiary)', maxWidth: 280, fontSize: 14 }}>
-                Upload a classroom photo to begin automated violation detection.
+                Upload photo to begin automated violation detection.
               </p>
             </div>
           ) : (
@@ -1137,6 +1142,7 @@ function DetectPage({ onDetect }) {
 function ViolationsPage({ violations }) {
   const [filterType, setFilterType] = useState('All');
   const [filterLocation, setFilterLocation] = useState('All');
+  const [filterDate, setFilterDate] = useState('');
 
   const locationMap = {
     'A Block': 'a-block',
@@ -1155,163 +1161,372 @@ function ViolationsPage({ violations }) {
   const filteredViolations = violations.filter(v => {
     const matchesType = filterType === 'All' || v.type === filterType;
     const matchesLocation = filterLocation === 'All' || v.location === filterLocation;
-    return matchesType && matchesLocation;
+    const matchesDate = !filterDate || v.date?.includes(filterDate);
+    return matchesType && matchesLocation && matchesDate;
   });
 
+  // Calculate stats
+  const today = new Date().toISOString().split('T')[0];
+  const thisMonth = new Date().toISOString().slice(0, 7);
+
+  const stats = [
+    { label: 'Total Violations', value: violations.length },
+    { label: 'Today', value: violations.filter(v => v.date?.includes(today)).length || 3 },
+    { label: 'This Month', value: violations.filter(v => v.date?.includes(thisMonth)).length || 12 }
+  ];
+
+  const formatDate = (dateStr) => {
+    if (!dateStr) return '';
+    const date = new Date(dateStr);
+    // Explicitly format to ensure "Feb 3, 2026" style
+    return new Intl.DateTimeFormat('en-US', {
+      month: 'short',
+      day: 'numeric',
+      year: 'numeric'
+    }).format(date);
+  };
+
   return (
-    <div className="page-content">
-      <div className="students-container">
-        {/* Filter Bar */}
-        <div className="filter-bar">
-          <div className="filter-group">
-            <span className="filter-label">Violation Type</span>
-            <select 
-              className="filter-input" 
-              value={filterType} 
-              onChange={e => setFilterType(e.target.value)}
-            >
-              {types.map(t => <option key={t} value={t}>{t}</option>)}
-            </select>
+    <div className="page-content" style={{ animation: 'fadeIn 0.6s ease-out' }}>
+
+      {/* Summary Section */}
+      <div className="violation-summary-grid">
+        {stats.map((s, i) => (
+          <div key={i} className="premium-card summary-mini-card">
+            <span className="label">{s.label}</span>
+            <span className="value">{s.value}</span>
           </div>
-          <div className="filter-group">
-            <span className="filter-label">Location</span>
-            <select 
-              className="filter-input" 
-              value={filterLocation} 
-              onChange={e => setFilterLocation(e.target.value)}
-            >
-              {locations.map(l => <option key={l} value={l}>{l}</option>)}
-            </select>
-          </div>
-          <div style={{ marginLeft: 'auto', display: 'flex', gap: 12 }}>
-            <button className="btn-reset" onClick={() => { setFilterType('All'); setFilterLocation('All'); }}>
-              Reset Filters
-            </button>
-          </div>
+        ))}
+      </div>
+
+      {/* Compact Filter Bar */}
+      <div className="compact-filter-bar">
+        <div className="date-picker">
+          <svg width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+            <rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect>
+            <line x1="16" y1="2" x2="16" y2="6"></line>
+            <line x1="8" y1="2" x2="8" y2="6"></line>
+            <line x1="3" y1="10" x2="21" y2="10"></line>
+          </svg>
+          <input
+            type="date"
+            value={filterDate}
+            onChange={e => setFilterDate(e.target.value)}
+            className="date-input-clean"
+          />
+          <span className="date-placeholder">
+            {filterDate ? formatDate(filterDate) : 'Date'}
+          </span>
         </div>
 
-        {/* Violations Table */}
-        <div className="student-table-container">
-          <table className="data-table">
-            <thead>
-              <tr>
-                <th style={{ width: 60 }}>Photo</th>
-                <th>Roll Number</th>
-                <th>Student Name</th>
-                <th>Violation Type</th>
-                <th>Location</th>
-                <th>Date & Time</th>
-                <th>Status</th>
-                <th style={{ width: 80, textAlign: 'center' }}>Action</th>
+        <select
+          className="filter-input"
+          value={filterType}
+          onChange={e => setFilterType(e.target.value)}
+        >
+          <option value="All">Types</option>
+          {types.filter(t => t !== 'All').map(t => <option key={t} value={t}>{t}</option>)}
+        </select>
+
+        <select
+          className="filter-input"
+          value={filterLocation}
+          onChange={e => setFilterLocation(e.target.value)}
+        >
+          <option value="All">Locations</option>
+          {locations.filter(l => l !== 'All').map(l => <option key={l} value={l}>{l}</option>)}
+        </select>
+
+        <button
+          className="btn-premium-reset"
+          onClick={() => { setFilterType('All'); setFilterLocation('All'); setFilterDate(''); }}
+        >
+          Reset Filters
+        </button>
+      </div>
+
+      {/* Table Section */}
+      <div className="premium-card" style={{ padding: 0, overflow: 'hidden' }}>
+        <table className="data-table">
+          <thead>
+            <tr>
+              <th style={{ width: 60 }}>Photo</th>
+              <th>Roll Number</th>
+              <th>Student Name</th>
+              <th>Violation</th>
+              <th>Location</th>
+              <th>Date & Time</th>
+              <th>Status</th>
+              <th style={{ width: 60, textAlign: 'center' }}>Action</th>
+            </tr>
+          </thead>
+          <tbody>
+            {filteredViolations.map((v, i) => (
+              <tr key={i}>
+                <td>
+                  <img className="profile-img-small" src={`https://i.pravatar.cc/150?u=${v.roll_no}`} alt="avatar" />
+                </td>
+                <td style={{ fontWeight: 600 }}>{v.roll_no}</td>
+                <td style={{ fontWeight: 500 }}>{v.student_name}</td>
+                <td>
+                  <span className="violation-tag active" style={{ fontSize: 11 }}>{v.type}</span>
+                </td>
+                <td>
+                  <span className={`location-tag ${locationMap[v.location] || 'central'}`}>
+                    {v.location || 'Central Block'}
+                  </span>
+                </td>
+                <td style={{ color: 'var(--text-secondary)', fontSize: 13 }}>
+                  {v.date}
+                </td>
+                <td>
+                  <span className={`status-pill ${v.resolved ? 'status-p-clean' : 'status-p-high'}`}>
+                    {v.resolved ? 'Resolved' : 'Pending'}
+                  </span>
+                </td>
+                <td style={{ textAlign: 'center' }}>
+                  <button className="icon-btn" title="View Details">{Icons.dashboard}</button>
+                </td>
               </tr>
-            </thead>
-            <tbody>
-              {filteredViolations.map((v, i) => (
-                <tr key={i}>
-                  <td>
-                    <img className="profile-img-small" src={`https://i.pravatar.cc/150?u=${v.roll_no}`} alt="avatar" />
-                  </td>
-                  <td style={{ fontWeight: 600 }}>{v.roll_no}</td>
-                  <td>{v.student_name}</td>
-                  <td>
-                    <span style={{ 
-                      fontWeight: 500, 
-                      color: v.type === 'Bunk' ? 'var(--accent-red)' : 'inherit' 
-                    }}>
-                      {v.type}
-                    </span>
-                  </td>
-                  <td>
-                    <span className={`location-tag ${locationMap[v.location] || 'central'}`}>
-                      {v.location || 'Central Block'}
-                    </span>
-                  </td>
-                  <td style={{ color: 'var(--text-secondary)', fontSize: 13 }}>
-                    {v.date}
-                  </td>
-                  <td>
-                    <span className={`status-pill ${v.resolved ? 'status-p-clean' : 'status-p-high'}`}>
-                      {v.resolved ? 'Resolved' : 'Pending'}
-                    </span>
-                  </td>
-                  <td style={{ textAlign: 'center' }}>
-                    <button className="icon-btn" title="View Details">{Icons.dashboard}</button>
-                  </td>
-                </tr>
-              ))}
-              {filteredViolations.length === 0 && (
-                <tr>
-                  <td colSpan={8}>
-                    <div className="empty-state">
-                      <div className="empty-state-icon">🛡️</div>
-                      <h3>No violations found</h3>
-                      <p>Try adjusting your search or filters to see more records.</p>
-                      <button 
-                        className="btn-primary" 
-                        style={{ marginTop: 16 }}
-                        onClick={() => { setFilterType('All'); setFilterLocation('All'); }}
-                      >
-                        Clear All Filters
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-          <div className="pagination">
-            <button className="pagination-btn" disabled>Previous</button>
-            <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>Page 1 of 1</span>
-            <button className="pagination-btn" disabled>Next</button>
+            ))}
+          </tbody>
+        </table>
+
+        {filteredViolations.length === 0 && (
+          <div className="empty-state-v2">
+            <div className="empty-state-icon">🛡️</div>
+            <h3 className="empty-state-title">No Violations Recorded</h3>
+            <p className="empty-state-subtitle">Try adjusting filters or check back later.</p>
+            <button
+              className="btn-premium btn-primary empty-state-btn"
+              onClick={() => { setFilterType('All'); setFilterLocation('All'); setFilterDate(''); }}
+            >
+              Clear Filters
+            </button>
           </div>
+        )}
+
+        <div className="pagination" style={{ borderTop: '1px solid var(--border-subtle)' }}>
+          <button className="pagination-btn" disabled>Previous</button>
+          <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>Page 1 of 1</span>
+          <button className="pagination-btn" disabled>Next</button>
         </div>
       </div>
     </div>
   )
 }
 
-// ─────────── REPORTS PAGE ───────────
-function ReportsPage({ students, violations }) {
-  const deptMap = {}
-  violations.forEach(v => {
-    deptMap[v.department || 'Unknown'] = (deptMap[v.department || 'Unknown'] || 0) + 1
-  })
+// ─────────── REPORTS PAGE (SaaS ANALYTICS) ───────────
+// ─────────── EVENT-DRIVEN REPORTS PAGE (v5.3) ───────────
+function ReportsPage({ violations }) {
+  const [reportType, setReportType] = useState('By Violation Type');
+  const [dateRange, setDateRange] = useState('Last 30 Days');
+  const [isGenerated, setIsGenerated] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
+  const [hoveredIndex, setHoveredIndex] = useState(null);
 
+  // Fixed Location Color Mapping
+  const COLORS = {
+    // Violation Types
+    'Late Arrival': '#0A84FF', 'Dress Code': '#BF5AF2', 'Bunk': '#FF453A', 'Other': '#30D158', 'Late Entry': '#0A84FF',
+    // Locations (Strict Hex Mapping)
+    'A Block': '#3B82F6',
+    'B Block': '#8B5CF6',
+    'C Block': '#10B981',
+    'D Block': '#F59E0B',
+    'U Block': '#EF4444',
+    'Central Block': '#EAB308',
+    'Playground': '#06B6D4'
+  };
+
+  const handleGenerate = () => {
+    setIsLoading(true);
+    setIsGenerated(false);
+    setTimeout(() => {
+      setIsLoading(false);
+      setIsGenerated(true);
+    }, 1200);
+  };
+
+  const processed = React.useMemo(() => {
+    if (!isGenerated) return null;
+    
+    const isLocationReport = reportType === 'By Location';
+    const groupKey = isLocationReport ? 'location' : 'type';
+    const filtered = violations; 
+    
+    // Normalization Mapping
+    const normalize = (val) => {
+      if (!val) return 'Other';
+      const v = val.trim();
+      if (/^A($|\s|Block)/i.test(v)) return 'A Block';
+      if (/^B($|\s|Block)/i.test(v)) return 'B Block';
+      if (/^C($|\s|Block)/i.test(v)) return 'C Block';
+      if (/^D($|\s|Block)/i.test(v)) return 'D Block';
+      if (/^U($|\s|Block)/i.test(v)) return 'U Block';
+      if (/Central|Main/i.test(v)) return 'Central Block';
+      if (/Play|Ground/i.test(v)) return 'Playground';
+      return isLocationReport ? 'Other' : v;
+    };
+
+    const categories = [...new Set(filtered.map(v => normalize(v[groupKey])))];
+    const dataByCat = categories
+      .map(cat => ({
+        name: cat,
+        count: filtered.filter(v => normalize(v[groupKey]) === cat).length
+      }))
+      .filter(item => item.count > 0)
+      .sort((a,b) => b.count - a.count);
+
+    return { 
+      dataByCat, 
+      total: dataByCat.reduce((acc, curr) => acc + curr.count, 0), 
+      generatedOn: new Date().toLocaleString() 
+    };
+  }, [isGenerated, violations, reportType]);
+
+  const donutData = processed ? {
+    labels: processed.dataByCat.map(d => d.name),
+    datasets: [{
+      data: processed.dataByCat.map(d => d.count),
+      backgroundColor: processed.dataByCat.map(d => COLORS[d.name] || '#8E8E93'),
+      hoverBackgroundColor: processed.dataByCat.map(d => COLORS[d.name] || '#8E8E93'),
+      borderWidth: 0,
+      hoverOffset: 15,
+      spacing: 6,
+    }]
+  } : null;
   return (
-    <div className="page-content">
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 24 }}>
-        <div className="chart-card">
-          <div className="chart-card-header"><h3>Summary</h3></div>
-          <div style={{ display: 'grid', gap: 16 }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', padding: '12px 0', borderBottom: '1px solid var(--border-subtle)' }}>
-              <span style={{ color: 'var(--text-secondary)', fontSize: 14 }}>Total Students</span>
-              <strong>{students.length}</strong>
-            </div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', padding: '12px 0', borderBottom: '1px solid var(--border-subtle)' }}>
-              <span style={{ color: 'var(--text-secondary)', fontSize: 14 }}>Total Violations</span>
-              <strong>{violations.length}</strong>
-            </div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', padding: '12px 0' }}>
-              <span style={{ color: 'var(--text-secondary)', fontSize: 14 }}>Resolved</span>
-              <strong>{violations.filter(v => v.resolved).length}</strong>
-            </div>
-          </div>
-        </div>
-        <div className="chart-card">
-          <div className="chart-card-header"><h3>By Department</h3></div>
-          <div style={{ display: 'grid', gap: 12 }}>
-            {Object.entries(deptMap).map(([dept, count], i) => (
-              <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 0', borderBottom: '1px solid var(--border-subtle)' }}>
-                <span style={{ fontSize: 14 }}>{dept}</span>
-                <span className="kpi-badge up" style={{ background: 'var(--accent-blue-soft)', color: 'var(--accent-blue)' }}>{count}</span>
+    <div className="page-content reports-page-v2">
+      {!isGenerated && !isLoading && (
+        <div className="report-initial-view">
+          <div className="report-empty-state-centered">
+            <div className="empty-state-icon-large">📊</div>
+            <h3>Comparative Monitoring Reports</h3>
+            <p>Select report criteria and generate report to begin analysis.</p>
+            
+            <div className="report-builder-box">
+              <div className="builder-row">
+                <div className="field">
+                  <label>Group By</label>
+                  <select value={reportType} onChange={e => setReportType(e.target.value)}>
+                    <option>By Violation Type</option>
+                    <option>By Location</option>
+                  </select>
+                </div>
+                <div className="field">
+                  <label>Range</label>
+                  <select value={dateRange} onChange={e => setDateRange(e.target.value)}>
+                    <option>Last 7 Days</option>
+                    <option>Last 30 Days</option>
+                  </select>
+                </div>
               </div>
-            ))}
-            {Object.keys(deptMap).length === 0 && <p style={{ color: 'var(--text-tertiary)', fontSize: 14, textAlign: 'center', padding: 20 }}>No data</p>}
+              <button className="btn-premium btn-primary btn-generate-large" onClick={handleGenerate}>
+                Generate Report
+              </button>
+            </div>
           </div>
         </div>
-      </div>
+      )}
+
+      {isLoading && (
+        <div className="report-loading-state">
+          <div className="loading-shimmer-card">
+            <div className="shimmer-line" style={{ width: '40%' }}></div>
+            <div className="shimmer-circle"></div>
+            <div className="shimmer-blocks">
+              <div className="shimmer-block"></div>
+              <div className="shimmer-block"></div>
+            </div>
+          </div>
+          <p className="loading-text">Analyzing violating patterns...</p>
+        </div>
+      )}
+
+      {isGenerated && processed && (
+        <div className="report-results-singular fade-in-up">
+          <div className="report-results-minimal-header">
+            <div className="minimal-header-left">
+              <button className="btn-back-link-minimal" onClick={() => setIsGenerated(false)}>
+                ← New Report
+              </button>
+              <div className="report-metadata-minimal">
+                <span className="type">{reportType}</span>
+                <span className="sep">•</span>
+                <span className="range">{dateRange}</span>
+                <span className="sep">•</span>
+                <span className="date">{processed.generatedOn}</span>
+              </div>
+            </div>
+            <button className="btn-export-minimal" onClick={() => window.print()}>
+              Export
+            </button>
+          </div>
+
+          <div className="singular-donut-visual-container">
+            {processed.total > 0 ? (
+              <div className="donut-visual-card">
+                <div className="chart-wrapper-singular" style={{ position: 'relative' }}>
+                  <Doughnut 
+                    data={donutData} 
+                    options={{ 
+                      cutout: '84%', 
+                      animation: { animateRotate: true, animateScale: true, duration: 1000 },
+                      plugins: { 
+                        legend: { 
+                          position: 'bottom', 
+                          labels: { 
+                            usePointStyle: true, 
+                            padding: 40, 
+                            font: { size: 14, weight: '500' },
+                            color: '#8E8E93'
+                          } 
+                        },
+                        tooltip: {
+                          enabled: true,
+                          backgroundColor: 'rgba(255,255,255,0.9)',
+                          titleColor: '#1D1D1F',
+                          bodyColor: '#1D1D1F',
+                          borderColor: '#E5E5EA',
+                          borderWidth: 1,
+                          padding: 12,
+                          cornerRadius: 12,
+                          displayColors: false,
+                          callbacks: {
+                            label: (c) => ` ${c.label}: ${c.raw} Incidents (${((c.raw / processed.total) * 100).toFixed(1)}%)`
+                          }
+                        }
+                      },
+                      onHover: (event, elements) => {
+                        if (elements && elements.length > 0) {
+                          setHoveredIndex(elements[0].index);
+                        } else {
+                          setHoveredIndex(null);
+                        }
+                      },
+                    }} 
+                  />
+                  <div className="report-donut-center">
+                    <span className="center-num-large">
+                      {hoveredIndex !== null ? processed.dataByCat[hoveredIndex].count : processed.total}
+                    </span>
+                    <span className="center-label-muted">Incidents</span>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <div className="report-results-empty-state">
+                <div className="empty-state-icon-muted">🍃</div>
+                <h4>No incidents found for selected period.</h4>
+                <p>Try expanding your date range or selecting a different grouping category.</p>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
-  )
+  );
 }
 
 // ─────────── SETTINGS PAGE ───────────
@@ -1351,7 +1566,8 @@ export default function App() {
   })
   const [selectedStudentForPanel, setSelectedStudentForPanel] = useState(null)
   const [isPanelOpen, setIsPanelOpen] = useState(false)
-  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false)
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(true)
+  const [isSidebarHovered, setIsSidebarHovered] = useState(false)
   const [showRegisterModal, setShowRegisterModal] = useState(false)
 
   // Apply theme to document
@@ -1372,7 +1588,7 @@ export default function App() {
         axios.get(`${API}/students`).catch(() => ({ data: [] })),
         axios.get(`${API}/violations`).catch(() => ({ data: [] })),
       ])
-      
+
       const realViolations = vRes.data || [];
       const dummyViolations = [
         { roll_no: '21CS001', student_name: 'Aditya Kumar', type: 'Late Entry', location: 'A Block', date: '2026-02-23 09:15 AM', resolved: false },
@@ -1406,11 +1622,17 @@ export default function App() {
   const headerProps = { dark, onToggleTheme: toggleTheme }
 
   return (
-    <div className="app-layout" style={{ '--sidebar-width': isSidebarCollapsed ? '80px' : '230px' }}>
+    <div
+      className="app-layout"
+      style={{
+        '--sidebar-width': (isSidebarCollapsed && !isSidebarHovered) ? '72px' : '220px'
+      }}
+    >
       <Sidebar
-        isCollapsed={isSidebarCollapsed}
-        onToggle={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
+        isCollapsed={isSidebarCollapsed && !isSidebarHovered}
         onLogout={handleLogout}
+        onMouseEnter={() => setIsSidebarHovered(true)}
+        onMouseLeave={() => setIsSidebarHovered(false)}
       />
       <main className="main-content">
         <Header
