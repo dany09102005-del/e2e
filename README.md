@@ -1,7 +1,7 @@
 # 🎓 AttendGuard  
 ## Student Attendance Violation Detection System
 
-AttendGuard is a full-stack, deep learning–based face recognition system designed to detect and record student attendance violations. The system captures an image, identifies the student using high-accuracy facial embeddings, and logs violations securely in MongoDB.
+(feat: Enhance Detect and Violations pages with new UI elements, file upload functionality, and improved data handling)
 
 It leverages a ResNet-based deep learning model through the `face_recognition` library to generate 128-dimensional face embeddings for robust and reliable identity matching.
 
@@ -9,7 +9,7 @@ It leverages a ResNet-based deep learning model through the `face_recognition` l
 
 ## 📌 Project Overview
 
-AttendGuard automates attendance violation monitoring by:
+AttendGuard automates attendance violation monitoring by :
 
 - Registering students with validated face images
 - Extracting deep learning facial embeddings (128-d vectors)

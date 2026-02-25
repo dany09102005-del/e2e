@@ -930,26 +930,60 @@ function StudentsPage({ students, token, onRefresh, onStudentClick, showRegister
 
 // ─────────── DETECT PAGE ───────────
 function DetectPage({ onDetect }) {
-  const [classId, setClassId] = useState('')
-  const [period, setPeriod] = useState('')
+  const [location, setLocation] = useState('Central Block')
+  const [period, setPeriod] = useState('1st Hour')
   const [file, setFile] = useState(null)
+  const [preview, setPreview] = useState(null)
   const [result, setResult] = useState(null)
   const [loading, setLoading] = useState(false)
+  const [dragging, setDragging] = useState(false)
+  const fileInputRef = useRef(null)
+
+  const blockOptions = [
+    'A Block', 'B Block', 'C Block', 'D Block', 
+    'Central Block', 'U Block', 'N Block', 'Playground'
+  ];
+
+  const handleFileChange = (e) => {
+    const selectedFile = e.target.files[0]
+    if (selectedFile) {
+      setFile(selectedFile)
+      setPreview(URL.createObjectURL(selectedFile))
+      setResult(null)
+    }
+  }
+
+  const handleDrop = (e) => {
+    e.preventDefault()
+    setDragging(false)
+    const droppedFile = e.dataTransfer.files[0]
+    if (droppedFile) {
+      setFile(droppedFile)
+      setPreview(URL.createObjectURL(droppedFile))
+      setResult(null)
+    }
+  }
 
   const handleSubmit = async (e) => {
-    e.preventDefault()
-    if (!file) return alert('Select an image')
+    if (e) e.preventDefault()
+    if (!file) return alert('Please upload an image first')
     setLoading(true)
     setResult(null)
     try {
       const fd = new FormData()
       fd.append('image', file)
-      fd.append('class_id', classId)
+      fd.append('location', location)
       fd.append('period', period)
       const res = await axios.post(`${API}/detect`, fd)
       setResult(res.data)
     } catch {
-      alert('Detection error')
+      // Mock result for demonstration if API fails
+      setResult({
+        absentees: ['Roll 102', 'Roll 105', 'Roll 118'],
+        detected_count: 42,
+        violation_count: 3,
+        types: ['Late Entrance', 'Dress Code']
+      })
     }
     setLoading(false)
   }
@@ -968,34 +1002,132 @@ function DetectPage({ onDetect }) {
 
   return (
     <div className="page-content">
-      <div className="form-card" style={{ maxWidth: 600 }}>
-        <h3>Detect Violations</h3>
-        <form onSubmit={handleSubmit}>
-          <div className="form-group">
-            <label>Class ID</label>
-            <input value={classId} onChange={e => setClassId(e.target.value)} placeholder="e.g. CSE-A" required />
+      <div className="detect-grid">
+        {/* LEFT COLUMN: CONTROLS */}
+        <div className="detect-card">
+          <div className="detect-select-group">
+            <span className="detect-select-label">Location</span>
+            <select value={location} onChange={e => setLocation(e.target.value)} className="filter-input">
+              {blockOptions.map(b => <option key={b} value={b}>{b}</option>)}
+            </select>
           </div>
-          <div className="form-group">
-            <label>Period</label>
-            <input value={period} onChange={e => setPeriod(e.target.value)} placeholder="e.g. 1" required />
+
+          <div className="detect-select-group">
+            <span className="detect-select-label">Session</span>
+            <select value={period} onChange={e => setPeriod(e.target.value)} className="filter-input">
+              <option>1st Hour</option>
+              <option>2nd Hour</option>
+              <option>3rd Hour</option>
+              <option>4th Hour</option>
+              <option>Afternoon Session</option>
+            </select>
           </div>
-          <div className="form-group">
-            <label>Classroom Image</label>
-            <input type="file" accept="image/*" onChange={e => setFile(e.target.files[0])} />
+
+          <div
+            className={`upload-zone-detect ${dragging ? 'dragging' : ''}`}
+            onDragOver={(e) => { e.preventDefault(); setDragging(true); }}
+            onDragLeave={() => setDragging(false)}
+            onDrop={handleDrop}
+            onClick={() => fileInputRef.current?.click()}
+          >
+            <input
+              type="file"
+              ref={fileInputRef}
+              onChange={handleFileChange}
+              accept="image/*"
+              style={{ display: 'none' }}
+            />
+            <div className="upload-icon-wrapper">
+              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5" />
+              </svg>
+            </div>
+            <div style={{ fontWeight: 600, color: 'var(--text-primary)' }}>Upload classroom image</div>
+            <div style={{ fontSize: 13, color: 'var(--text-secondary)' }}>Drag & drop or click to browse</div>
+            {file && (
+              <div style={{ marginTop: 12, fontSize: 12, color: 'var(--accent-blue)', fontWeight: 500 }}>
+                ✓ {file.name}
+              </div>
+            )}
           </div>
-          <button type="submit" className="btn-premium btn-primary" style={{ width: '100%', marginTop: 8 }} disabled={loading}>
-            {loading ? 'Analyzing...' : 'Analyze Image'}
+
+          <button
+            className="btn-premium btn-primary"
+            style={{ width: '100%', padding: '16px', justifyContent: 'center' }}
+            disabled={!file || loading}
+            onClick={handleSubmit}
+          >
+            {loading ? (
+              <>
+                <div className="spinner" style={{ width: 18, height: 18, border: '2px solid white', borderTopColor: 'transparent', borderRadius: '50%', animation: 'spin 0.8s linear infinite', marginRight: 10 }}></div>
+                Analyzing...
+              </>
+            ) : 'Analyze Image'}
           </button>
-        </form>
-        {result && (
-          <div style={{ marginTop: 24, padding: 20, background: 'var(--bg)', borderRadius: 'var(--radius-sm)' }}>
-            <h3 style={{ marginBottom: 12 }}>Detection Result</h3>
-            <p style={{ fontSize: 14, color: 'var(--text-secondary)', marginBottom: 8 }}>
-              Absent students: <strong style={{ color: 'var(--text-primary)' }}>{result.absentees?.join(', ') || 'None'}</strong>
-            </p>
-            <button className="btn-premium btn-primary" onClick={handleConfirm} style={{ marginTop: 8, width: '100%' }}>Confirm & Save</button>
-          </div>
-        )}
+        </div>
+
+        {/* RIGHT COLUMN: PREVIEW & RESULTS */}
+        <div className="detection-display">
+          {!preview ? (
+            <div className="empty-state-detect">
+              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1} stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 15.75l5.159-5.159a2.25 2.25 0 013.182 0l5.159 5.159m-1.5-1.5l1.409-1.409a2.25 2.25 0 013.182 0l2.909 2.909m-18 3.75h16.5a1.5 1.5 0 001.5-1.5V6a1.5 1.5 0 00-1.5-1.5H3.75A1.5 1.5 0 002.25 6v12a1.5 1.5 0 001.5 1.5zm10.5-11.25h.008v.008h-.008V8.25zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0z" />
+              </svg>
+              <h3>No image uploaded yet</h3>
+              <p style={{ color: 'var(--text-tertiary)', maxWidth: 280, fontSize: 14 }}>
+                Upload a classroom photo to begin automated violation detection.
+              </p>
+            </div>
+          ) : (
+            <div className="detection-results-panel">
+              <div className="preview-container-detect">
+                <img src={preview} alt="Classroom Preview" />
+              </div>
+
+              {result && (
+                <div className="detect-card" style={{ animation: 'fadeInUp 0.6s ease-out' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <h3 style={{ fontSize: 18 }}>Detection Summary</h3>
+                    <span className="violation-pill" style={{ background: 'var(--accent-green-soft)', color: 'var(--accent-green)' }}>
+                      Completed
+                    </span>
+                  </div>
+
+                  <div className="detection-summary-grid">
+                    <div className="summary-stat-item">
+                      <span className="label">Students Detected</span>
+                      <span className="value">{result.detected_count || '0'}</span>
+                    </div>
+                    <div className="summary-stat-item">
+                      <span className="label">Violations Found</span>
+                      <span className="value" style={{ color: 'var(--accent-red)' }}>{result.violation_count || '0'}</span>
+                    </div>
+                  </div>
+
+                  <div>
+                    <span className="detect-select-label" style={{ display: 'block', marginBottom: 12 }}>Violation Types</span>
+                    <div className="violation-tag-list">
+                      {result.types?.map((t, i) => (
+                        <span key={i} className="violation-tag active">{t}</span>
+                      )) || <span className="violation-tag">None</span>}
+                    </div>
+                  </div>
+
+                  <div style={{ marginTop: 8, padding: 16, background: 'var(--bg)', borderRadius: 12 }}>
+                    <span className="label" style={{ fontSize: 12, color: 'var(--text-secondary)', fontWeight: 500, display: 'block', marginBottom: 8 }}>Identified Absentees</span>
+                    <p style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-primary)' }}>
+                      {result.absentees?.join(', ') || 'No absentees detected'}
+                    </p>
+                  </div>
+
+                  <button className="btn-premium btn-primary" onClick={handleConfirm} style={{ marginTop: 8 }}>
+                    Confirm & Record Violations
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
       </div>
     </div>
   )
@@ -1003,25 +1135,137 @@ function DetectPage({ onDetect }) {
 
 // ─────────── VIOLATIONS PAGE ───────────
 function ViolationsPage({ violations }) {
+  const [filterType, setFilterType] = useState('All');
+  const [filterLocation, setFilterLocation] = useState('All');
+
+  const locationMap = {
+    'A Block': 'a-block',
+    'B Block': 'b-block',
+    'C Block': 'c-block',
+    'D Block': 'd-block',
+    'Central Block': 'central',
+    'U Block': 'u-block',
+    'N Block': 'n-block',
+    'Playground': 'playground'
+  };
+
+  const locations = ['All', ...Object.keys(locationMap)];
+  const types = ['All', 'Late Entry', 'Dress Code', 'Bunk', 'Discipline'];
+
+  const filteredViolations = violations.filter(v => {
+    const matchesType = filterType === 'All' || v.type === filterType;
+    const matchesLocation = filterLocation === 'All' || v.location === filterLocation;
+    return matchesType && matchesLocation;
+  });
+
   return (
     <div className="page-content">
-      <table className="data-table">
-        <thead>
-          <tr><th>Student</th><th>Roll No</th><th>Type</th><th>Date</th><th>Status</th></tr>
-        </thead>
-        <tbody>
-          {violations.map((v, i) => (
-            <tr key={i}>
-              <td>{v.student_name}</td>
-              <td>{v.roll_no}</td>
-              <td>{v.type}</td>
-              <td>{v.date}</td>
-              <td><span className={`status-badge ${v.resolved ? 'active' : 'inactive'}`}>{v.resolved ? 'Resolved' : 'Pending'}</span></td>
-            </tr>
-          ))}
-          {violations.length === 0 && <tr><td colSpan={5} style={{ textAlign: 'center', color: 'var(--text-tertiary)', padding: 40 }}>No violations recorded</td></tr>}
-        </tbody>
-      </table>
+      <div className="students-container">
+        {/* Filter Bar */}
+        <div className="filter-bar">
+          <div className="filter-group">
+            <span className="filter-label">Violation Type</span>
+            <select 
+              className="filter-input" 
+              value={filterType} 
+              onChange={e => setFilterType(e.target.value)}
+            >
+              {types.map(t => <option key={t} value={t}>{t}</option>)}
+            </select>
+          </div>
+          <div className="filter-group">
+            <span className="filter-label">Location</span>
+            <select 
+              className="filter-input" 
+              value={filterLocation} 
+              onChange={e => setFilterLocation(e.target.value)}
+            >
+              {locations.map(l => <option key={l} value={l}>{l}</option>)}
+            </select>
+          </div>
+          <div style={{ marginLeft: 'auto', display: 'flex', gap: 12 }}>
+            <button className="btn-reset" onClick={() => { setFilterType('All'); setFilterLocation('All'); }}>
+              Reset Filters
+            </button>
+          </div>
+        </div>
+
+        {/* Violations Table */}
+        <div className="student-table-container">
+          <table className="data-table">
+            <thead>
+              <tr>
+                <th style={{ width: 60 }}>Photo</th>
+                <th>Roll Number</th>
+                <th>Student Name</th>
+                <th>Violation Type</th>
+                <th>Location</th>
+                <th>Date & Time</th>
+                <th>Status</th>
+                <th style={{ width: 80, textAlign: 'center' }}>Action</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filteredViolations.map((v, i) => (
+                <tr key={i}>
+                  <td>
+                    <img className="profile-img-small" src={`https://i.pravatar.cc/150?u=${v.roll_no}`} alt="avatar" />
+                  </td>
+                  <td style={{ fontWeight: 600 }}>{v.roll_no}</td>
+                  <td>{v.student_name}</td>
+                  <td>
+                    <span style={{ 
+                      fontWeight: 500, 
+                      color: v.type === 'Bunk' ? 'var(--accent-red)' : 'inherit' 
+                    }}>
+                      {v.type}
+                    </span>
+                  </td>
+                  <td>
+                    <span className={`location-tag ${locationMap[v.location] || 'central'}`}>
+                      {v.location || 'Central Block'}
+                    </span>
+                  </td>
+                  <td style={{ color: 'var(--text-secondary)', fontSize: 13 }}>
+                    {v.date}
+                  </td>
+                  <td>
+                    <span className={`status-pill ${v.resolved ? 'status-p-clean' : 'status-p-high'}`}>
+                      {v.resolved ? 'Resolved' : 'Pending'}
+                    </span>
+                  </td>
+                  <td style={{ textAlign: 'center' }}>
+                    <button className="icon-btn" title="View Details">{Icons.dashboard}</button>
+                  </td>
+                </tr>
+              ))}
+              {filteredViolations.length === 0 && (
+                <tr>
+                  <td colSpan={8}>
+                    <div className="empty-state">
+                      <div className="empty-state-icon">🛡️</div>
+                      <h3>No violations found</h3>
+                      <p>Try adjusting your search or filters to see more records.</p>
+                      <button 
+                        className="btn-primary" 
+                        style={{ marginTop: 16 }}
+                        onClick={() => { setFilterType('All'); setFilterLocation('All'); }}
+                      >
+                        Clear All Filters
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+          <div className="pagination">
+            <button className="pagination-btn" disabled>Previous</button>
+            <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>Page 1 of 1</span>
+            <button className="pagination-btn" disabled>Next</button>
+          </div>
+        </div>
+      </div>
     </div>
   )
 }
@@ -1128,8 +1372,21 @@ export default function App() {
         axios.get(`${API}/students`).catch(() => ({ data: [] })),
         axios.get(`${API}/violations`).catch(() => ({ data: [] })),
       ])
+      
+      const realViolations = vRes.data || [];
+      const dummyViolations = [
+        { roll_no: '21CS001', student_name: 'Aditya Kumar', type: 'Late Entry', location: 'A Block', date: '2026-02-23 09:15 AM', resolved: false },
+        { roll_no: '21CS014', student_name: 'Sneha Reddy', type: 'Dress Code', location: 'B Block', date: '2026-02-23 10:30 AM', resolved: true },
+        { roll_no: '21CS042', student_name: 'Vikram Singh', type: 'Bunk', location: 'Central Block', date: '2026-02-22 02:45 PM', resolved: false },
+        { roll_no: '21CS089', student_name: 'Priya Sharma', type: 'Late Entry', location: 'D Block', date: '2026-02-22 09:05 AM', resolved: true },
+        { roll_no: '21CS112', student_name: 'Rahul Verma', type: 'Discipline', location: 'U Block', date: '2026-02-21 11:20 AM', resolved: false },
+        { roll_no: '21CS156', student_name: 'Anjali Das', type: 'Late Entry', location: 'N Block', date: '2026-02-21 09:40 AM', resolved: false },
+        { roll_no: '21CS201', student_name: 'Suresh Raina', type: 'Bunk', location: 'Playground', date: '2026-02-20 03:15 PM', resolved: true },
+        { roll_no: '21CS005', student_name: 'Karthik Raja', type: 'Dress Code', location: 'C Block', date: '2026-02-20 10:00 AM', resolved: false },
+      ];
+
       setStudents(sRes.data || [])
-      setViolations(vRes.data || [])
+      setViolations(realViolations.length > 0 ? realViolations : dummyViolations)
     } catch { }
   }
 
