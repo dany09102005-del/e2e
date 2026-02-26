@@ -136,7 +136,9 @@ class ViolationService:
         for v in violations:
             v["_id"] = str(v["_id"])
             if "created_at" in v:
-                # Format to a readable string or keep as ISO for frontend parsing
+                # Human readable date for display
                 v["date"] = v["created_at"].strftime("%b %d, %Y %I:%M %p")
+                # Strict ISO date for the HTML date picker filter
+                v["iso_date"] = v["created_at"].strftime("%Y-%m-%d")
                 
         return violations

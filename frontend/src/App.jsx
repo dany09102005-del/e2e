@@ -1376,6 +1376,8 @@ function ViolationsPage({ violations }) {
   const [filterType, setFilterType] = useState('All');
   const [filterLocation, setFilterLocation] = useState('All');
   const [filterDate, setFilterDate] = useState('');
+  const [currentPage, setCurrentPage] = useState(1);
+  const itemsPerPage = 10;
 
   const locationMap = {
     'A Block': 'a-block',
@@ -1394,9 +1396,18 @@ function ViolationsPage({ violations }) {
   const filteredViolations = violations.filter(v => {
     const matchesType = filterType === 'All' || v.type === filterType;
     const matchesLocation = filterLocation === 'All' || v.location === filterLocation;
-    const matchesDate = !filterDate || v.date?.includes(filterDate);
+    const matchesDate = !filterDate || v.iso_date === filterDate;
     return matchesType && matchesLocation && matchesDate;
   });
+
+  // Calculate pages
+  const totalPages = Math.max(1, Math.ceil(filteredViolations.length / itemsPerPage));
+  const paginatedViolations = filteredViolations.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
+
+  // Reset page to 1 when filters change
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [filterType, filterLocation, filterDate]);
 
   // Calculate stats
   const today = new Date().toISOString().split('T')[0];
@@ -1489,12 +1500,11 @@ function ViolationsPage({ violations }) {
               <th>Violation</th>
               <th>Location</th>
               <th>Date & Time</th>
-              <th style={{ width: 60, textAlign: 'center' }}>Action</th>
             </tr>
           </thead>
           <tbody>
-            {filteredViolations.map((v, i) => (
-              <tr key={i}>
+            {paginatedViolations.map((v, i) => (
+              <tr key={v._id || i}>
                 <td>
                   <img
                     className="profile-img-small"
@@ -1516,9 +1526,6 @@ function ViolationsPage({ violations }) {
                 <td style={{ color: 'var(--text-secondary)', fontSize: 13 }}>
                   {v.date || 'Unknown Date'}
                 </td>
-                <td style={{ textAlign: 'center' }}>
-                  <button className="icon-btn" title="View Details">{Icons.dashboard}</button>
-                </td>
               </tr>
             ))}
           </tbody>
@@ -1539,9 +1546,21 @@ function ViolationsPage({ violations }) {
         )}
 
         <div className="pagination" style={{ borderTop: '1px solid var(--border-subtle)' }}>
-          <button className="pagination-btn" disabled>Previous</button>
-          <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>Page 1 of 1</span>
-          <button className="pagination-btn" disabled>Next</button>
+          <button
+            className="pagination-btn"
+            disabled={currentPage === 1}
+            onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
+          >
+            Previous
+          </button>
+          <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>Page {currentPage} of {totalPages}</span>
+          <button
+            className="pagination-btn"
+            disabled={currentPage === totalPages}
+            onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
+          >
+            Next
+          </button>
         </div>
       </div>
     </div>
