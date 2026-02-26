@@ -155,7 +155,8 @@ const StudentProfileSidePanel = ({ student, isOpen, onClose, dark }) => {
                             <header className="profile-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginTop: 20 }}>
                                 <div style={{ display: 'flex', gap: 24, alignItems: 'center' }}>
                                     <img
-                                        src={`https://i.pravatar.cc/150?u=${student.roll_no}`}
+                                        src={`http://localhost:5001/api/students/${student.roll_no}/image`}
+                                        onError={(e) => { e.target.src = `https://ui-avatars.com/api/?name=${student.name}&background=random` }}
                                         alt={student.name}
                                         style={{ width: 120, height: 120, borderRadius: '50%', objectFit: 'cover', border: '4px solid var(--surface)', boxShadow: 'var(--shadow-lg)' }}
                                     />

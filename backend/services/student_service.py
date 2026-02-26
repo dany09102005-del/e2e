@@ -20,14 +20,29 @@ class StudentService:
             }
         }
         
-        # Ensure hierarchy exists in storage/training
-        dept = student_data.get("department", "CSE").upper()
-        section = student_data.get("section", "A").upper()
-        sid = student_data.get("student_id")
+        # Clean and Normalize Required Fields
+        roll_no = str(student_data.get("roll_no", "")).strip().upper()
+        if not roll_no:
+            raise ValueError("Roll number is required")
+            
+        student_data["roll_no"] = roll_no
         
-        if sid:
-            storage_path = Path(Config.STORAGE_TRAINING) / dept / section / sid
-            storage_path.mkdir(parents=True, exist_ok=True)
+        student_data["name"] = str(student_data.get("name", "")).strip().title()
+        dept = str(student_data.get("department", "CSE")).strip().upper()
+        section = str(student_data.get("section", "A")).strip().upper()
+        
+        student_data["department"] = dept
+        student_data["section"] = section
+        
+        # Consolidate and nest contact info
+        student_data["contact_info"] = {
+            "phone": str(student_data.pop("phone", "")).strip(),
+            "email": str(student_data.pop("email", "")).strip()
+        }
+        
+        # Ensure hierarchy exists in storage/training
+        storage_path = Path(Config.STORAGE_TRAINING) / dept / section / roll_no
+        storage_path.mkdir(parents=True, exist_ok=True)
         
         # Handle face status
         if "face" not in student_data:
@@ -73,12 +88,12 @@ class StudentService:
         return StudentService.get_students(query)
 
     @staticmethod
-    def update_student_face(student_id, embedding, image_filename):
+    def update_student_face(roll_no, embedding, image_filename):
         db = get_db()
         from config import Config
         from pathlib import Path
         
-        student = db.students.find_one({"student_id": student_id})
+        student = db.students.find_one({"roll_no": roll_no})
         if not student:
             return
             
@@ -86,7 +101,7 @@ class StudentService:
         section = student.get("section", "A").upper()
         
         # Ensure path exists (should already exist from create_student, but safety first)
-        storage_path = Path(Config.STORAGE_TRAINING) / dept / section / student_id
+        storage_path = Path(Config.STORAGE_TRAINING) / dept / section / roll_no
         storage_path.mkdir(parents=True, exist_ok=True)
         
         # Note: In a real system, we'd move the image from a temp location here
@@ -94,7 +109,7 @@ class StudentService:
         # as it will be scanned by sync_storage later or handled by the route.
 
         db.students.update_one(
-            {"student_id": student_id},
+            {"roll_no": roll_no},
             {
                 "$set": {
                     "face.embedding": to_plain_list(embedding),

@@ -23,7 +23,36 @@ ChartJS.register(
   BarElement, ArcElement, Filler, Tooltip, Legend
 )
 
-const API = 'http://localhost:5000'
+// ─────────── API CONFIGURATION ───────────
+const API = 'http://localhost:5001'
+
+// Create centralized axios instance
+const apiClient = axios.create({
+  baseURL: API
+})
+
+// Add token to requests
+apiClient.interceptors.request.use((config) => {
+  const token = localStorage.getItem('token')
+  if (token) {
+    config.headers.Authorization = `Bearer ${token}`
+  }
+  return config
+})
+
+// Handle 401 Unauthorized globally
+apiClient.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    if (error.response?.status === 401) {
+      // Clear token and reload to show login page
+      localStorage.removeItem('token')
+      window.location.href = '/'
+    }
+    return Promise.reject(error)
+  }
+)
+
 
 // ─────────── SVG ICONS ───────────
 const Icons = {
@@ -172,8 +201,8 @@ function LoginPage({ onLogin }) {
     e.preventDefault()
     setErr('')
     try {
-      const res = await axios.post(`${API}/login`, { username: user, password: pass })
-      onLogin(res.data.token)
+      const res = await apiClient.post('/api/auth/login', { username: user, password: pass })
+      onLogin(res.data.data.access_token)
     } catch {
       setErr('Invalid credentials')
     }
@@ -621,7 +650,7 @@ function StudentsPage({ students, token, onRefresh, onStudentClick, showRegister
   const [isApplied, setIsApplied] = useState(false)
   const [activeTab, setActiveTab] = useState('overview')
   const [regForm, setRegForm] = useState({
-    name: '', roll_no: '', dept: 'CSE', year: '3rd Year', phone: '', email: '', threshold: '75', image: null
+    name: '', roll_no: '', dept: 'CSE', section: 'A', year: '3rd Year', phone: '', email: '', threshold: '75', imagePreview: null, imageFile: null
   })
   const [dragging, setDragging] = useState(false)
 
@@ -636,9 +665,36 @@ function StudentsPage({ students, token, onRefresh, onStudentClick, showRegister
     ]
   }
 
+  // Filter students by active dropdown selections
+  const filteredStudents = students.filter(s => {
+    const roll = (s.roll_no || '').toUpperCase()
+    
+    // Program Filter: B.Tech must have 'BQ' in roll number
+    const matchesProgram = !filter.program || filter.program !== 'B.Tech' || roll.includes('BQ')
+    
+    // Batch Filter Logic
+    let matchesBatch = true
+    if (filter.batch) {
+      if (filter.batch === '2023-27') {
+        matchesBatch = roll.startsWith('23') || roll.startsWith('24BQ5A')
+      } else if (filter.batch === '2022-26') {
+        matchesBatch = roll.startsWith('22') || roll.startsWith('23BQ5A')
+      } else if (filter.batch === '2021-25') {
+        matchesBatch = roll.startsWith('21') || roll.startsWith('22BQ5A')
+      } else if (filter.batch === '2020-24') {
+        matchesBatch = roll.startsWith('20') || roll.startsWith('21BQ5A')
+      }
+    }
+
+    const matchesDept = !filter.dept || (s.department || '').toUpperCase() === filter.dept.toUpperCase()
+    const matchesSection = !filter.section || (s.section || '').toUpperCase() === filter.section.toUpperCase()
+    
+    return matchesProgram && matchesBatch && matchesDept && matchesSection
+  })
+
   // Derived stats for summary
   const summaryStats = [
-    { label: 'Total Students', value: students.length || '2,847', icon: '👥', color: 'blue' },
+    { label: 'Total Students', value: filteredStudents.length || '0', icon: '👥', color: 'blue' },
     { label: 'Late Arrivals', value: '14', icon: '⏰', color: 'orange' },
     { label: 'Dress Code', value: '08', icon: '👔', color: 'purple' },
     { label: 'Bunk', value: '03', icon: '🏃', color: 'red' },
@@ -726,16 +782,21 @@ function StudentsPage({ students, token, onRefresh, onStudentClick, showRegister
                   </tr>
                 </thead>
                 <tbody>
-                  {students.map((s, i) => {
+                  {filteredStudents.map((s, i) => {
                     const status = getStatus(s.violation_count || i % 3)
                     return (
                       <tr key={i} onClick={() => onStudentClick && onStudentClick(s)}>
                         <td>
-                          <img className="profile-img-small" src={`https://i.pravatar.cc/150?u=${s.roll_no}`} alt="avatar" />
+                          <img
+                            className="profile-img-small"
+                            src={`${API}/api/students/${s.roll_no}/image`}
+                            onError={(e) => { e.target.src = `https://ui-avatars.com/api/?name=${s.name}&background=random` }}
+                            alt="avatar"
+                          />
                         </td>
                         <td style={{ fontWeight: 600 }}>{s.roll_no}</td>
                         <td>{s.name}</td>
-                        <td>{filter.section}</td>
+                        <td>{s.section || 'A'}</td>
                         <td style={{ textAlign: 'center', fontWeight: 600 }}>{s.violation_count || i % 3}</td>
                         <td><span className={`status-pill ${status.class}`}>{status.label}</span></td>
                         <td style={{ textAlign: 'center' }}>
@@ -768,10 +829,33 @@ function StudentsPage({ students, token, onRefresh, onStudentClick, showRegister
               <p style={{ color: 'var(--text-secondary)', fontSize: 13 }}>Enter student credentials to add them to the monitoring system.</p>
             </div>
 
-            <form className="registration-form" onSubmit={(e) => {
+            <form className="registration-form" onSubmit={async (e) => {
               e.preventDefault()
-              setShowRegisterModal(false)
-              alert('Student registration submitted for ' + regForm.name)
+
+              if (!regForm.imageFile) {
+                alert('Please upload a student photo first')
+                return
+              }
+
+              const fd = new FormData();
+              fd.append('name', regForm.name);
+              fd.append('roll_no', regForm.roll_no);
+              fd.append('department', regForm.dept);
+              fd.append('section', regForm.section);
+              fd.append('year', regForm.year);
+              fd.append('phone', regForm.phone);
+              fd.append('email', regForm.email);
+              fd.append('threshold', regForm.threshold);
+              fd.append('image', regForm.imageFile);
+
+              try {
+                await apiClient.post('/api/students/', fd);
+                alert('Student registration submitted for ' + regForm.name)
+                setShowRegisterModal(false)
+                if (onRefresh) onRefresh()
+              } catch (err) {
+                alert('Registration failed: ' + (err.response?.data?.error || err.message))
+              }
             }}>
               {/* Image Upload */}
               <div
@@ -782,7 +866,7 @@ function StudentsPage({ students, token, onRefresh, onStudentClick, showRegister
                   e.preventDefault()
                   setDragging(false)
                   const file = e.dataTransfer.files[0]
-                  if (file) setRegForm({ ...regForm, image: URL.createObjectURL(file) })
+                  if (file) setRegForm({ ...regForm, imagePreview: URL.createObjectURL(file), imageFile: file })
                 }}
                 onClick={() => document.getElementById('file-input').click()}
               >
@@ -792,11 +876,11 @@ function StudentsPage({ students, token, onRefresh, onStudentClick, showRegister
                   hidden
                   onChange={e => {
                     const file = e.target.files[0]
-                    if (file) setRegForm({ ...regForm, image: URL.createObjectURL(file) })
+                    if (file) setRegForm({ ...regForm, imagePreview: URL.createObjectURL(file), imageFile: file })
                   }}
                 />
-                {regForm.image ? (
-                  <img src={regForm.image} className="upload-preview" alt="preview" />
+                {regForm.imagePreview ? (
+                  <img src={regForm.imagePreview} className="upload-preview" alt="preview" />
                 ) : (
                   <div className="upload-placeholder">
                     {Icons.detect}
@@ -817,7 +901,13 @@ function StudentsPage({ students, token, onRefresh, onStudentClick, showRegister
                 <div className="filter-group">
                   <span className="filter-label">Department</span>
                   <select className="filter-input" value={regForm.dept} onChange={e => setRegForm({ ...regForm, dept: e.target.value })}>
-                    <option>CSE</option><option>ECE</option><option>EEE</option><option>MECH</option>
+                    <option>CSE</option><option>ECE</option><option>EEE</option><option>MECH</option><option>CIVIL</option>
+                  </select>
+                </div>
+                <div className="filter-group">
+                  <span className="filter-label">Section</span>
+                  <select className="filter-input" value={regForm.section} onChange={e => setRegForm({ ...regForm, section: e.target.value })}>
+                    <option>A</option><option>B</option><option>C</option><option>D</option>
                   </select>
                 </div>
                 <div className="filter-group">
@@ -859,7 +949,12 @@ function StudentsPage({ students, token, onRefresh, onStudentClick, showRegister
         <div className="modal-overlay" onClick={() => setSelectedStudent(null)}>
           <div className="modal-content" onClick={e => e.stopPropagation()}>
             <div className="modal-sidebar">
-              <img className="modal-profile-img" src={`https://i.pravatar.cc/300?u=${selectedStudent.roll_no}`} alt="profile" />
+              <img
+                className="modal-profile-img"
+                src={`${API}/api/students/${selectedStudent.roll_no}/image`}
+                onError={(e) => { e.target.src = `https://ui-avatars.com/api/?name=${selectedStudent.name}&background=random` }}
+                alt="profile"
+              />
               <span className={`status-pill ${getStatus(selectedStudent.violation_count || 0).class}`}>{getStatus(selectedStudent.violation_count || 0).label}</span>
             </div>
             <div className="modal-main">
@@ -979,7 +1074,7 @@ function DetectPage({ onDetect }) {
       fd.append('image', file)
       fd.append('location', location)
       fd.append('period', period)
-      const res = await axios.post(`${API}/detect`, fd)
+      const res = await apiClient.post('/api/detection/match', fd)
       setResult(res.data)
     } catch {
       // Mock result for demonstration if API fails
@@ -996,7 +1091,7 @@ function DetectPage({ onDetect }) {
   const handleConfirm = async () => {
     if (!result) return
     try {
-      await axios.post(`${API}/confirm`, result)
+      await apiClient.post('/api/violations/', result)
       alert('Violation confirmed!')
       setResult(null)
       if (onDetect) onDetect()
@@ -1264,7 +1359,12 @@ function ViolationsPage({ violations }) {
             {filteredViolations.map((v, i) => (
               <tr key={i}>
                 <td>
-                  <img className="profile-img-small" src={`https://i.pravatar.cc/150?u=${v.roll_no}`} alt="avatar" />
+                  <img
+                    className="profile-img-small"
+                    src={`${API}/api/students/${v.roll_no || v.student_id}/image`}
+                    onError={(e) => { e.target.src = `https://ui-avatars.com/api/?name=${v.roll_no || 'Unknown'}&background=random` }}
+                    alt="avatar"
+                  />
                 </td>
                 <td style={{ fontWeight: 600 }}>{v.roll_no}</td>
                 <td style={{ fontWeight: 500 }}>{v.student_name}</td>
@@ -1350,11 +1450,11 @@ function ReportsPage({ violations }) {
 
   const processed = React.useMemo(() => {
     if (!isGenerated) return null;
-    
+
     const isLocationReport = reportType === 'By Location';
     const groupKey = isLocationReport ? 'location' : 'type';
-    const filtered = violations; 
-    
+    const filtered = violations;
+
     // Normalization Mapping
     const normalize = (val) => {
       if (!val) return 'Other';
@@ -1376,12 +1476,12 @@ function ReportsPage({ violations }) {
         count: filtered.filter(v => normalize(v[groupKey]) === cat).length
       }))
       .filter(item => item.count > 0)
-      .sort((a,b) => b.count - a.count);
+      .sort((a, b) => b.count - a.count);
 
-    return { 
-      dataByCat, 
-      total: dataByCat.reduce((acc, curr) => acc + curr.count, 0), 
-      generatedOn: new Date().toLocaleString() 
+    return {
+      dataByCat,
+      total: dataByCat.reduce((acc, curr) => acc + curr.count, 0),
+      generatedOn: new Date().toLocaleString()
     };
   }, [isGenerated, violations, reportType]);
 
@@ -1404,7 +1504,7 @@ function ReportsPage({ violations }) {
             <div className="empty-state-icon-large">📊</div>
             <h3>Comparative Monitoring Reports</h3>
             <p>Select report criteria and generate report to begin analysis.</p>
-            
+
             <div className="report-builder-box">
               <div className="builder-row">
                 <div className="field">
@@ -1468,20 +1568,20 @@ function ReportsPage({ violations }) {
             {processed.total > 0 ? (
               <div className="donut-visual-card">
                 <div className="chart-wrapper-singular" style={{ position: 'relative' }}>
-                  <Doughnut 
-                    data={donutData} 
-                    options={{ 
-                      cutout: '84%', 
+                  <Doughnut
+                    data={donutData}
+                    options={{
+                      cutout: '84%',
                       animation: { animateRotate: true, animateScale: true, duration: 1000 },
-                      plugins: { 
-                        legend: { 
-                          position: 'bottom', 
-                          labels: { 
-                            usePointStyle: true, 
-                            padding: 40, 
+                      plugins: {
+                        legend: {
+                          position: 'bottom',
+                          labels: {
+                            usePointStyle: true,
+                            padding: 40,
                             font: { size: 14, weight: '500' },
                             color: '#8E8E93'
-                          } 
+                          }
                         },
                         tooltip: {
                           enabled: true,
@@ -1505,7 +1605,7 @@ function ReportsPage({ violations }) {
                           setHoveredIndex(null);
                         }
                       },
-                    }} 
+                    }}
                   />
                   <div className="report-donut-center">
                     <span className="center-num-large">
@@ -1585,8 +1685,8 @@ export default function App() {
   const loadData = async () => {
     try {
       const [sRes, vRes] = await Promise.all([
-        axios.get(`${API}/students`).catch(() => ({ data: [] })),
-        axios.get(`${API}/violations`).catch(() => ({ data: [] })),
+        apiClient.get('/api/students/').catch(() => ({ data: [] })),
+        apiClient.get('/api/violations/').catch(() => ({ data: [] })),
       ])
 
       const realViolations = vRes.data || [];
@@ -1609,12 +1709,12 @@ export default function App() {
   const handleLogin = (t) => {
     localStorage.setItem('token', t)
     setToken(t)
+    navigate('/dashboard')
   }
 
   const handleLogout = () => {
     localStorage.removeItem('token')
     setToken(null)
-    navigate('/login')
   }
 
   if (!token) return <LoginPage onLogin={handleLogin} />
@@ -1659,6 +1759,7 @@ export default function App() {
           <Route path="/violations" element={<ViolationsPage violations={violations} />} />
           <Route path="/reports" element={<ReportsPage students={students} violations={violations} />} />
           <Route path="/settings" element={<SettingsPage />} />
+          <Route path="*" element={<Navigate to="/dashboard" />} />
         </Routes>
       </main>
       <StudentProfileSidePanel

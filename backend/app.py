@@ -7,6 +7,7 @@ from routes.students import students_bp
 from routes.violations import violations_bp
 from routes.reports import reports_bp
 from routes.auth import auth_bp
+from routes.detection import detection_bp
 from services.auth_service import AuthService
 
 def create_app():

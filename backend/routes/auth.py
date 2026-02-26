@@ -1,5 +1,5 @@
 from flask import Blueprint, request, jsonify
-from flask_jwt_extended import jwt_required
+from flask_jwt_extended import create_access_token, jwt_required
 from services.auth_service import AuthService
 from utils.auth_decorators import admin_required
 
@@ -12,13 +12,32 @@ def login():
     password = data.get("password")
     
     if not username or not password:
-        return jsonify({"error": "Username and password required"}), 400
+        return jsonify({
+            "success": False,
+            "message": "Username and password required"
+        }), 400
         
-    result = AuthService.login(username, password)
-    if not result:
-        return jsonify({"error": "Invalid credentials"}), 401
+    user = AuthService.verify_user(username, password)
+    
+    if not user:
+        return jsonify({
+            "success": False,
+            "message": "Invalid credentials"
+        }), 401
         
-    return jsonify(result), 200
+    access_token = create_access_token(
+        identity=username,
+        additional_claims={"role": user.get("role", "staff")}
+    )
+    
+    return jsonify({
+        "success": True,
+        "data": {
+            "access_token": access_token,
+            "role": user.get("role", "staff")
+        },
+        "message": "Login successful"
+    }), 200
 
 @auth_bp.route("/create-user", methods=["POST"])
 @jwt_required()
@@ -31,8 +50,18 @@ def create_user():
             password=data.get("password"),
             role=data.get("role", "staff")
         )
-        return jsonify({"success": True, "id": user_id}), 201
+        return jsonify({
+            "success": True, 
+            "data": {"id": user_id},
+            "message": "User created successfully"
+        }), 201
     except ValueError as e:
-        return jsonify({"error": str(e)}), 400
+        return jsonify({
+            "success": False,
+            "message": str(e)
+        }), 400
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        return jsonify({
+            "success": False,
+            "message": str(e)
+        }), 500

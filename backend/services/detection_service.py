@@ -54,7 +54,7 @@ class DetectionService:
                 "success": True,
                 "matched": True,
                 "student": {
-                    "student_id": best_match["student_id"],
+                    "roll_no": best_match["roll_no"],
                     "name": best_match["name"],
                     "department": best_match.get("department"),
                     "section": best_match.get("section")

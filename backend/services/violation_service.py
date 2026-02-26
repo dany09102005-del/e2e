@@ -23,7 +23,7 @@ class ViolationService:
         # Increment student stats
         stats_key = f"stats.types.{v_type.lower().replace(' ', '_')}"
         db.students.update_one(
-            {"student_id": violation_data["student_id"]},
+            {"roll_no": violation_data["student_id"]},
             {
                 "$inc": {
                     "stats.total": 1,
@@ -53,7 +53,7 @@ class ViolationService:
         # Decrement student stats
         stats_key = f"stats.types.{v_type.lower().replace(' ', '_')}"
         db.students.update_one(
-            {"student_id": student_id},
+            {"roll_no": student_id},
             {
                 "$inc": {
                     "stats.total": -1,
