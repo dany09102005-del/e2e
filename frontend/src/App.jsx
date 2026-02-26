@@ -460,7 +460,8 @@ function Dashboard() {
         ticks: {
           color: '#8E8E93', font: { family: 'Inter', size: 11, weight: '500' },
           padding: 12, maxTicksLimit: 4,
-          callback: (v) => v === 0 ? '' : v
+          stepSize: 1,
+          callback: (v) => Number.isInteger(v) ? (v === 0 ? '' : v) : ''
         },
       },
     },
@@ -572,7 +573,7 @@ function Dashboard() {
     text: <><strong>{v.roll_no}</strong> — {v.type}: {v.remarks || 'No details'}</>,
     time: v.time,
     badge: v.badge,
-    badgeLabel: v.status
+    badgeLabel: v.type
   }))
 
   return (
@@ -741,9 +742,10 @@ function StudentsPage({ students, token, onRefresh, onStudentClick, showRegister
   ]
 
   const getStatus = (count) => {
-    if (count > 5) return { label: 'High Risk', class: 'status-p-high' }
-    if (count > 2) return { label: 'Monitor', class: 'status-p-monitor' }
-    return { label: 'Clean', class: 'status-p-clean' }
+    if (count === 0) return { label: 'Clean', class: 'status-p-clean' }
+    if (count < 3) return { label: 'Low Risk', class: 'status-p-low' }
+    if (count < 7) return { label: 'Medium', class: 'status-p-monitor' }
+    return { label: 'High Risk', class: 'status-p-high' }
   }
 
   return (
@@ -1487,7 +1489,6 @@ function ViolationsPage({ violations }) {
               <th>Violation</th>
               <th>Location</th>
               <th>Date & Time</th>
-              <th>Status</th>
               <th style={{ width: 60, textAlign: 'center' }}>Action</th>
             </tr>
           </thead>
@@ -1513,12 +1514,7 @@ function ViolationsPage({ violations }) {
                   </span>
                 </td>
                 <td style={{ color: 'var(--text-secondary)', fontSize: 13 }}>
-                  {v.date}
-                </td>
-                <td>
-                  <span className={`status-pill ${v.resolved ? 'status-p-clean' : 'status-p-high'}`}>
-                    {v.resolved ? 'Resolved' : 'Pending'}
-                  </span>
+                  {v.date || 'Unknown Date'}
                 </td>
                 <td style={{ textAlign: 'center' }}>
                   <button className="icon-btn" title="View Details">{Icons.dashboard}</button>

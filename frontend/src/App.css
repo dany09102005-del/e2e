@@ -2101,6 +2101,11 @@
   color: var(--accent-green);
 }
 
+.status-p-low {
+  background: rgba(0, 122, 255, 0.1);
+  color: #007AFF;
+}
+
 .status-p-monitor {
   background: var(--accent-orange-soft);
   color: var(--accent-orange);

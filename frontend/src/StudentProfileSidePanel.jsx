@@ -159,20 +159,18 @@ const StudentProfileSidePanel = ({ student, isOpen, onClose, dark }) => {
     const monthlyAvg = analytics ? Math.round(donutTotal / Math.max(monthlyLabels.filter((_, i) => monthlyValues[i] > 0).length, 1)) : 0;
 
 
-    const getRiskColor = (level) => {
-        switch (level?.toLowerCase()) {
-            case 'high': return 'var(--accent-red)';
-            case 'medium': return 'var(--accent-orange)';
-            default: return 'var(--accent-green)';
-        }
+    const getRiskColor = (count) => {
+        if (count === 0) return 'var(--accent-green)';
+        if (count < 3) return 'var(--accent-blue)';
+        if (count < 7) return 'var(--accent-orange)';
+        return 'var(--accent-red)';
     };
 
-    const getRiskBg = (level) => {
-        switch (level?.toLowerCase()) {
-            case 'high': return 'var(--accent-red-soft)';
-            case 'medium': return 'var(--accent-orange-soft)';
-            default: return 'var(--accent-green-soft)';
-        }
+    const getRiskBg = (count) => {
+        if (count === 0) return 'var(--accent-green-soft)';
+        if (count < 3) return 'var(--accent-blue-soft, rgba(0,122,255,0.1))';
+        if (count < 7) return 'var(--accent-orange-soft)';
+        return 'var(--accent-red-soft)';
     };
 
     const getTimelineColor = (type) => {
@@ -231,9 +229,9 @@ const StudentProfileSidePanel = ({ student, isOpen, onClose, dark }) => {
                                         <div style={{ marginTop: 16 }}>
                                             <span style={{
                                                 padding: '6px 14px', borderRadius: 20, fontSize: 13, fontWeight: 600,
-                                                background: getRiskBg(student.risk || 'Low'), color: getRiskColor(student.risk || 'Low')
+                                                background: getRiskBg(student.violation_count || 0), color: getRiskColor(student.violation_count || 0)
                                             }}>
-                                                {student.violation_count > 5 ? 'Critical Status' : student.violation_count > 2 ? 'Warning Status' : 'Clean Status'}
+                                                {(student.violation_count || 0) === 0 ? 'Clean' : (student.violation_count || 0) < 3 ? 'Low Risk' : (student.violation_count || 0) < 7 ? 'Medium' : 'High Risk'}
                                             </span>
                                         </div>
                                     </div>

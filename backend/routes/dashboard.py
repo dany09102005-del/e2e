@@ -21,7 +21,7 @@ def get_dashboard_kpis():
         
         # 3. Today's Activity
         today_start = datetime.combine(datetime.utcnow().date(), time.min)
-        today_activity = db.violations.count_documents({"timestamp": {"$gte": today_start}})
+        today_activity = db.violations.count_documents({"created_at": {"$gte": today_start}})
         
         # 4. Monthly Activity 
         # Aggregate violations by month (e.g., "Jan", "Feb")
@@ -29,7 +29,7 @@ def get_dashboard_kpis():
         monthly_pipeline = [
             {
                 "$group": {
-                    "_id": {"$month": "$timestamp"},
+                    "_id": {"$month": "$created_at"},
                     "count": {"$sum": 1}
                 }
             },

@@ -99,7 +99,44 @@ class ViolationService:
     @staticmethod
     def get_violations(filters=None):
         db = get_db()
-        violations = list(db.violations.find(filters or {}).sort("timestamp", -1))
+        pipeline = []
+        if filters:
+            pipeline.append({"$match": filters})
+            
+        pipeline.extend([
+            {
+                "$lookup": {
+                    "from": "students",
+                    "localField": "roll_no",
+                    "foreignField": "roll_no",
+                    "as": "student_info"
+                }
+            },
+            {
+                "$unwind": {
+                    "path": "$student_info",
+                    "preserveNullAndEmptyArrays": True
+                }
+            },
+            {
+                "$addFields": {
+                    "student_name": {"$ifNull": ["$student_info.name", "Unknown Student"]}
+                }
+            },
+            {
+                "$project": {
+                    "student_info": 0
+                }
+            },
+            {"$sort": {"created_at": -1}}
+        ])
+        
+        violations = list(db.violations.aggregate(pipeline))
+        
         for v in violations:
             v["_id"] = str(v["_id"])
+            if "created_at" in v:
+                # Format to a readable string or keep as ISO for frontend parsing
+                v["date"] = v["created_at"].strftime("%b %d, %Y %I:%M %p")
+                
         return violations
