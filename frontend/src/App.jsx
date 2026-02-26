@@ -1809,25 +1809,410 @@ function ReportsPage({ violations }) {
   );
 }
 
+// ─────────── SETTINGS SUB-COMPONENTS ───────────
+const SettingsToggle = ({ checked, onChange, label, description }) => (
+  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '14px 0', borderBottom: '1px solid var(--border-subtle)' }}>
+    <div style={{ flex: 1 }}>
+      <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-primary)' }}>{label}</div>
+      {description && <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginTop: 3 }}>{description}</div>}
+    </div>
+    <div
+      onClick={() => onChange(!checked)}
+      style={{
+        width: 44, height: 24, borderRadius: 12, cursor: 'pointer',
+        background: checked ? '#007AFF' : 'var(--border)',
+        position: 'relative', transition: 'background 0.25s ease',
+        flexShrink: 0, marginLeft: 16,
+      }}
+    >
+      <div style={{
+        width: 20, height: 20, borderRadius: '50%', background: '#fff',
+        position: 'absolute', top: 2,
+        left: checked ? 22 : 2,
+        transition: 'left 0.25s ease',
+        boxShadow: '0 1px 3px rgba(0,0,0,0.2)',
+      }} />
+    </div>
+  </div>
+)
+
+const SettingsSlider = ({ label, description, value, onChange, min, max, unit, step = 1 }) => (
+  <div style={{ padding: '16px 0', borderBottom: '1px solid var(--border-subtle)' }}>
+    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+      <div>
+        <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-primary)' }}>{label}</div>
+        {description && <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginTop: 3 }}>{description}</div>}
+      </div>
+      <span style={{
+        fontSize: 15, fontWeight: 700, color: '#007AFF',
+        background: 'rgba(0,122,255,0.1)', padding: '4px 12px', borderRadius: 8,
+      }}>
+        {value}{unit}
+      </span>
+    </div>
+    <input
+      type="range" min={min} max={max} step={step} value={value}
+      onChange={e => onChange(Number(e.target.value))}
+      style={{
+        width: '100%', height: 6, borderRadius: 3,
+        appearance: 'none', WebkitAppearance: 'none',
+        background: `linear-gradient(to right, #007AFF ${((value - min) / (max - min)) * 100}%, var(--border) ${((value - min) / (max - min)) * 100}%)`,
+        outline: 'none', cursor: 'pointer',
+      }}
+    />
+    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: 'var(--text-tertiary)', marginTop: 4 }}>
+      <span>{min}{unit}</span>
+      <span>{max}{unit}</span>
+    </div>
+  </div>
+)
+
+const SettingsSection = ({ title, icon, children }) => (
+  <div style={{
+    background: 'var(--surface)', borderRadius: 20, padding: '28px 32px',
+    border: '1px solid var(--border)', boxShadow: 'var(--shadow-sm)',
+    marginBottom: 24,
+  }}>
+    <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 20, paddingBottom: 16, borderBottom: '1px solid var(--border-subtle)' }}>
+      <div style={{
+        width: 36, height: 36, borderRadius: 10,
+        background: 'rgba(0,122,255,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center',
+        color: '#007AFF',
+      }}>
+        {icon}
+      </div>
+      <h3 style={{ fontSize: 17, fontWeight: 700, color: 'var(--text-primary)', margin: 0 }}>{title}</h3>
+    </div>
+    {children}
+  </div>
+)
+
+const SettingsInput = ({ label, description, value, onChange, type = 'text', placeholder }) => (
+  <div style={{ padding: '14px 0', borderBottom: '1px solid var(--border-subtle)' }}>
+    <label style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-primary)', display: 'block' }}>{label}</label>
+    {description && <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginTop: 3, marginBottom: 8 }}>{description}</div>}
+    <input
+      type={type} value={value} placeholder={placeholder}
+      onChange={e => onChange(e.target.value)}
+      style={{
+        width: '100%', padding: '10px 14px', borderRadius: 10,
+        border: '1px solid var(--border)', background: 'var(--bg)',
+        fontSize: 14, color: 'var(--text-primary)', marginTop: 6,
+        outline: 'none', transition: 'border 0.2s', boxSizing: 'border-box',
+      }}
+    />
+  </div>
+)
+
 // ─────────── SETTINGS PAGE ───────────
 function SettingsPage() {
+  const defaultSettings = {
+    institutionName: 'KL University',
+    institutionCode: 'KLU-2024',
+    adminEmail: 'admin@kluniversity.in',
+    academicYear: '2025-26',
+    violationThreshold: 5,
+    lateEntryGrace: 10,
+    autoFlagRepeat: true,
+    dressCodeEnabled: true,
+    bunkDetection: true,
+    emailNotify: true,
+    smsNotify: false,
+    pushNotify: true,
+    dailyDigest: true,
+    instantAlerts: true,
+    weeklyReport: false,
+    darkMode: document.documentElement.getAttribute('data-theme') === 'dark',
+    compactView: false,
+    animationsEnabled: true,
+    autoRefresh: true,
+    refreshInterval: 30,
+  }
+
+  const [settings, setSettings] = useState(() => {
+    try {
+      const stored = localStorage.getItem('app_settings')
+      return stored ? { ...defaultSettings, ...JSON.parse(stored) } : defaultSettings
+    } catch { return defaultSettings }
+  })
+  const [saved, setSaved] = useState(false)
+  const [showResetConfirm, setShowResetConfirm] = useState(false)
+  const [isUnlocked, setIsUnlocked] = useState(false)
+  const [enteredPin, setEnteredPin] = useState('')
+  const [pinError, setPinError] = useState(false)
+  const [hasChanges, setHasChanges] = useState(false)
+
+  const update = (key, value) => {
+    setSettings(prev => ({ ...prev, [key]: value }))
+    setHasChanges(true)
+    setSaved(false)
+  }
+
+  const handleSave = () => {
+    localStorage.setItem('app_settings', JSON.stringify(settings))
+    setSaved(true)
+    setHasChanges(false)
+    setTimeout(() => setSaved(false), 2500)
+  }
+
+  const handlePinInput = (num) => {
+    if (enteredPin.length < 4) {
+      const newPin = enteredPin + num
+      setEnteredPin(newPin)
+      if (newPin.length === 4) {
+        if (newPin === '7781') {
+          setIsUnlocked(true)
+        } else {
+          setPinError(true)
+          setTimeout(() => {
+            setPinError(false)
+            setEnteredPin('')
+          }, 600)
+        }
+      }
+    }
+  }
+
+  const handleBackspace = () => setEnteredPin(prev => prev.slice(0, -1))
+
+  if (!isUnlocked) {
+    return (
+      <div className="page-content" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '80vh', animation: 'fadeIn 0.4s ease' }}>
+        <div style={{
+          background: 'var(--surface)', padding: '40px', borderRadius: 24, border: '1px solid var(--border)',
+          boxShadow: 'var(--shadow-lg)', width: '100%', maxWidth: 360, textAlign: 'center',
+          transform: pinError ? 'translateX(0)' : 'none',
+          animation: pinError ? 'shake 0.4s ease-in-out' : 'none'
+        }}>
+          <div style={{
+            width: 60, height: 60, borderRadius: 18, background: 'rgba(0,122,255,0.1)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#007AFF',
+            margin: '0 auto 24px'
+          }}>
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" style={{ width: 30, height: 30 }}>
+              <path fillRule="evenodd" d="M12 1.5a5.25 5.25 0 00-5.25 5.25v3a3 3 0 00-3 3v6.75a3 3 0 003 3h10.5a3 3 0 003-3v-6.75a3 3 0 00-3-3v-3c0-2.9-2.35-5.25-5.25-5.25zm3.75 8.25v-3a3.75 3.75 0 10-7.5 0v3h7.5z" clipRule="evenodd" />
+            </svg>
+          </div>
+          <h2 style={{ fontSize: 22, fontWeight: 700, color: 'var(--text-primary)', margin: '0 0 8px' }}>Enter PIN</h2>
+          <p style={{ fontSize: 14, color: 'var(--text-secondary)', marginBottom: 32 }}>Access to Settings is restricted.</p>
+
+          {/* Dots */}
+          <div style={{ display: 'flex', justifyContent: 'center', gap: 16, marginBottom: 40 }}>
+            {[0, 1, 2, 3].map(i => (
+              <div key={i} style={{
+                width: 14, height: 14, borderRadius: '50%',
+                background: i < enteredPin.length ? (pinError ? '#FF3B30' : '#007AFF') : 'var(--border)',
+                transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
+                transform: i < enteredPin.length ? 'scale(1.2)' : 'scale(1)'
+              }} />
+            ))}
+          </div>
+
+          {/* Keypad */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12 }}>
+            {[1, 2, 3, 4, 5, 6, 7, 8, 9].map(num => (
+              <button key={num} onClick={() => handlePinInput(num.toString())} className="btn-pin">
+                {num}
+              </button>
+            ))}
+            <div />
+            <button onClick={() => handlePinInput('0')} className="btn-pin">0</button>
+            <button onClick={handleBackspace} className="btn-pin" style={{ color: 'var(--text-secondary)' }}>
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" style={{ width: 22, height: 22 }}>
+                <path fillRule="evenodd" d="M2.515 10.674a1.875 1.875 0 000 2.652L8.89 19.7c.352.351.829.549 1.326.549H19.5a3 3 0 003-3V6.75a3 3 0 00-3-3h-9.284c-.497 0-.974.198-1.326.55l-6.375 6.374zM12.53 9.22a.75.75 0 10-1.06 1.06L13.19 12l-1.72 1.72a.75.75 0 101.06 1.06l1.72-1.72 1.72 1.72a.75.75 0 101.06-1.06L15.31 12l1.72-1.72a.75.75 0 10-1.06-1.06L14.25 10.94l-1.72-1.72z" clipRule="evenodd" />
+              </svg>
+            </button>
+          </div>
+
+          <style>{`
+            .btn-pin {
+              height: 64px; border-radius: 16px; border: 1px solid var(--border);
+              background: var(--bg); color: var(--text-primary);
+              font-size: 20px; font-weight: 600; cursor: pointer;
+              transition: all 0.2s; display: flex; align-items: center; justify-content: center;
+              outline: none;
+            }
+            .btn-pin:hover { background: var(--surface); transform: translateY(-2px); border-color: #007AFF; }
+            .btn-pin:active { transform: translateY(0) scale(0.95); background: rgba(0,122,255,0.05); }
+            @keyframes shake {
+              0%, 100% { transform: translateX(0); }
+              20%, 60% { transform: translateX(-8px); }
+              40%, 80% { transform: translateX(8px); }
+            }
+          `}</style>
+        </div>
+      </div>
+    )
+  }
+
   return (
-    <div className="page-content">
-      <div className="form-card">
-        <h3>Settings</h3>
-        <div className="form-group">
-          <label>Institution Name</label>
-          <input defaultValue="Demo University" />
+    <div className="page-content" style={{ animation: 'fadeIn 0.6s ease-out', maxWidth: 720, margin: '0 auto', paddingBottom: 100 }}>
+
+      {/* Page Header */}
+      <div style={{ marginBottom: 32 }}>
+        <h2 style={{ fontSize: 28, fontWeight: 700, color: 'var(--text-primary)', letterSpacing: -0.5 }}>Settings</h2>
+        <p style={{ fontSize: 14, color: 'var(--text-secondary)', marginTop: 4 }}>Configure institution preferences, monitoring rules, and system behavior.</p>
+      </div>
+
+      {/* Section 1: Institution Profile */}
+      <SettingsSection
+        title="Institution Profile"
+        icon={<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" style={{ width: 18, height: 18 }}><path d="M11.584 2.376a.75.75 0 01.832 0l9 6a.75.75 0 01-.832 1.248L12 3.901 3.416 9.624a.75.75 0 01-.832-1.248l9-6z" /><path fillRule="evenodd" d="M20.25 10.332v9.918H21a.75.75 0 010 1.5H3a.75.75 0 010-1.5h.75v-9.918a.75.75 0 01.634-.74A49.109 49.109 0 0112 9c2.59 0 5.134.202 7.616.592a.75.75 0 01.634.74zm-7.5 2.418a.75.75 0 00-1.5 0v6.75a.75.75 0 001.5 0v-6.75zm3-.75a.75.75 0 01.75.75v6.75a.75.75 0 01-1.5 0v-6.75a.75.75 0 01.75-.75zM9 12.75a.75.75 0 00-1.5 0v6.75a.75.75 0 001.5 0v-6.75z" clipRule="evenodd" /></svg>}
+      >
+        <SettingsInput label="Institution Name" description="Official name displayed across the dashboard" value={settings.institutionName} onChange={v => update('institutionName', v)} />
+        <SettingsInput label="Institution Code" description="Unique identifier for reports and exports" value={settings.institutionCode} onChange={v => update('institutionCode', v)} />
+        <SettingsInput label="Admin Email" description="Primary contact for system notifications" value={settings.adminEmail} onChange={v => update('adminEmail', v)} type="email" />
+        <SettingsInput label="Academic Year" description="Current academic session for all records" value={settings.academicYear} onChange={v => update('academicYear', v)} />
+      </SettingsSection>
+
+      {/* Section 2: Monitoring Rules */}
+      <SettingsSection
+        title="Monitoring Rules"
+        icon={<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" style={{ width: 18, height: 18 }}><path fillRule="evenodd" d="M12.516 2.17a.75.75 0 00-1.032 0 11.209 11.209 0 01-7.877 3.08.75.75 0 00-.722.515A12.74 12.74 0 002.25 9.75c0 5.942 4.064 10.933 9.563 12.348a.749.749 0 00.374 0c5.499-1.415 9.563-6.406 9.563-12.348 0-1.39-.223-2.73-.635-3.985a.75.75 0 00-.722-.516l-.143.001c-2.996 0-5.717-1.17-7.734-3.08zm3.094 8.016a.75.75 0 10-1.22-.872l-3.236 4.53L9.53 12.22a.75.75 0 00-1.06 1.06l2.25 2.25a.75.75 0 001.14-.094l3.75-5.25z" clipRule="evenodd" /></svg>}
+      >
+        <SettingsSlider label="Violation Threshold" description="Maximum violations before a student is flagged critical" value={settings.violationThreshold} onChange={v => update('violationThreshold', v)} min={1} max={15} unit="" />
+        <SettingsSlider label="Late Entry Grace Period" description="Minutes after schedule before marking as late" value={settings.lateEntryGrace} onChange={v => update('lateEntryGrace', v)} min={0} max={30} unit=" min" />
+        <SettingsToggle label="Auto-Flag Repeat Offenders" description="Automatically escalate students with recurring violations" checked={settings.autoFlagRepeat} onChange={v => update('autoFlagRepeat', v)} />
+        <SettingsToggle label="Dress Code Monitoring" description="Enable AI-based dress code violation detection" checked={settings.dressCodeEnabled} onChange={v => update('dressCodeEnabled', v)} />
+        <SettingsToggle label="Bunk Detection" description="Track and flag unauthorized absences from classes" checked={settings.bunkDetection} onChange={v => update('bunkDetection', v)} />
+      </SettingsSection>
+
+      {/* Section 3: Notifications */}
+      <SettingsSection
+        title="Notifications"
+        icon={<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" style={{ width: 18, height: 18 }}><path fillRule="evenodd" d="M5.25 9a6.75 6.75 0 0113.5 0v.75c0 2.123.8 4.057 2.118 5.52a.75.75 0 01-.297 1.206c-1.544.57-3.16.99-4.831 1.243a3.75 3.75 0 11-7.48 0 24.585 24.585 0 01-4.831-1.244.75.75 0 01-.298-1.205A8.217 8.217 0 005.25 9.75V9zm4.502 8.9a2.25 2.25 0 104.496 0 25.057 25.057 0 01-4.496 0z" clipRule="evenodd" /></svg>}
+      >
+        <SettingsToggle label="Email Notifications" description="Receive violation alerts via email" checked={settings.emailNotify} onChange={v => update('emailNotify', v)} />
+        <SettingsToggle label="SMS Notifications" description="Get text message alerts for critical incidents" checked={settings.smsNotify} onChange={v => update('smsNotify', v)} />
+        <SettingsToggle label="Push Notifications" description="Browser push alerts for real-time updates" checked={settings.pushNotify} onChange={v => update('pushNotify', v)} />
+        <SettingsToggle label="Instant Alerts" description="Receive notifications immediately when violations occur" checked={settings.instantAlerts} onChange={v => update('instantAlerts', v)} />
+        <SettingsToggle label="Daily Digest" description="Summary email at end of each day" checked={settings.dailyDigest} onChange={v => update('dailyDigest', v)} />
+        <SettingsToggle label="Weekly Report" description="Comprehensive analytics report every Monday" checked={settings.weeklyReport} onChange={v => update('weeklyReport', v)} />
+      </SettingsSection>
+
+      {/* Section 4: System Preferences */}
+      <SettingsSection
+        title="System Preferences"
+        icon={<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" style={{ width: 18, height: 18 }}><path fillRule="evenodd" d="M11.078 2.25c-.917 0-1.699.663-1.85 1.567L9.05 4.889c-.02.12-.115.26-.297.348a7.493 7.493 0 00-.986.57c-.166.115-.334.126-.45.083L6.3 5.508a1.875 1.875 0 00-2.282.819l-.922 1.597a1.875 1.875 0 00.432 2.385l.84.692c.095.078.17.229.154.43a7.598 7.598 0 000 1.139c.015.2-.059.352-.153.43l-.841.692a1.875 1.875 0 00-.432 2.385l.922 1.597a1.875 1.875 0 002.282.818l1.019-.382c.115-.043.283-.031.45.082.312.214.641.405.985.57.182.088.277.228.297.35l.178 1.071c.151.904.933 1.567 1.85 1.567h1.844c.916 0 1.699-.663 1.85-1.567l.178-1.072c.02-.12.114-.26.297-.349.344-.165.673-.356.985-.57.167-.114.335-.125.45-.082l1.02.382a1.875 1.875 0 002.28-.819l.923-1.597a1.875 1.875 0 00-.432-2.385l-.84-.692c-.095-.078-.17-.229-.154-.43a7.614 7.614 0 000-1.139c-.016-.2.059-.352.153-.43l.84-.692c.708-.582.891-1.59.433-2.385l-.922-1.597a1.875 1.875 0 00-2.282-.818l-1.02.382c-.114.043-.282.031-.449-.083a7.49 7.49 0 00-.985-.57c-.183-.087-.277-.227-.297-.348l-.179-1.072a1.875 1.875 0 00-1.85-1.567h-1.843zM12 15.75a3.75 3.75 0 100-7.5 3.75 3.75 0 000 7.5z" clipRule="evenodd" /></svg>}
+      >
+        <SettingsToggle label="Compact View" description="Reduce spacing for denser information display" checked={settings.compactView} onChange={v => update('compactView', v)} />
+        <SettingsToggle label="Animations" description="Enable smooth transitions and micro-animations" checked={settings.animationsEnabled} onChange={v => update('animationsEnabled', v)} />
+        <SettingsToggle label="Auto Refresh" description="Automatically refresh data on dashboard" checked={settings.autoRefresh} onChange={v => update('autoRefresh', v)} />
+        {settings.autoRefresh && (
+          <SettingsSlider label="Refresh Interval" description="How often to refresh dashboard data" value={settings.refreshInterval} onChange={v => update('refreshInterval', v)} min={10} max={120} unit="s" step={5} />
+        )}
+      </SettingsSection>
+
+      {/* Danger Zone */}
+      <div style={{
+        background: 'var(--surface)', borderRadius: 20, padding: '28px 32px',
+        border: '1px solid rgba(255,59,48,0.3)', boxShadow: 'var(--shadow-sm)',
+        marginBottom: 24,
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 20, paddingBottom: 16, borderBottom: '1px solid rgba(255,59,48,0.15)' }}>
+          <div style={{
+            width: 36, height: 36, borderRadius: 10,
+            background: 'rgba(255,59,48,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center',
+            color: '#FF3B30',
+          }}>
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" style={{ width: 18, height: 18 }}>
+              <path fillRule="evenodd" d="M9.401 3.003c1.155-2 4.043-2 5.197 0l7.355 12.748c1.154 2-.29 4.5-2.599 4.5H4.645c-2.309 0-3.752-2.5-2.598-4.5L9.4 3.003zM12 8.25a.75.75 0 01.75.75v3.75a.75.75 0 01-1.5 0V9a.75.75 0 01.75-.75zm0 8.25a.75.75 0 100-1.5.75.75 0 000 1.5z" clipRule="evenodd" />
+            </svg>
+          </div>
+          <h3 style={{ fontSize: 17, fontWeight: 700, color: '#FF3B30', margin: 0 }}>Danger Zone</h3>
         </div>
-        <div className="form-group">
-          <label>Notification Email</label>
-          <input defaultValue="admin@university.edu" />
+
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '14px 0', borderBottom: '1px solid rgba(255,59,48,0.1)' }}>
+          <div>
+            <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-primary)' }}>Reset All Violations</div>
+            <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginTop: 3 }}>Permanently erase all violation records. This cannot be undone.</div>
+          </div>
+          {!showResetConfirm ? (
+            <button
+              onClick={() => setShowResetConfirm(true)}
+              style={{
+                padding: '8px 16px', borderRadius: 10, border: '1px solid rgba(255,59,48,0.4)',
+                background: 'transparent', color: '#FF3B30', fontSize: 13, fontWeight: 600,
+                cursor: 'pointer', transition: 'all 0.2s', flexShrink: 0, marginLeft: 16,
+              }}
+              onMouseEnter={e => { e.target.style.background = 'rgba(255,59,48,0.1)' }}
+              onMouseLeave={e => { e.target.style.background = 'transparent' }}
+            >
+              Reset Data
+            </button>
+          ) : (
+            <div style={{ display: 'flex', gap: 8, flexShrink: 0, marginLeft: 16 }}>
+              <button
+                onClick={() => setShowResetConfirm(false)}
+                style={{ padding: '8px 14px', borderRadius: 10, border: '1px solid var(--border)', background: 'var(--bg)', color: 'var(--text-secondary)', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => { setShowResetConfirm(false) }}
+                style={{ padding: '8px 14px', borderRadius: 10, border: 'none', background: '#FF3B30', color: '#fff', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}
+              >
+                Confirm Reset
+              </button>
+            </div>
+          )}
         </div>
-        <div className="form-group">
-          <label>Violation Threshold (per semester)</label>
-          <input type="number" defaultValue={5} />
+
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '14px 0' }}>
+          <div>
+            <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-primary)' }}>Delete All Students</div>
+            <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginTop: 3 }}>Remove all student profiles and associated data permanently.</div>
+          </div>
+          <button
+            style={{
+              padding: '8px 16px', borderRadius: 10, border: '1px solid rgba(255,59,48,0.4)',
+              background: 'transparent', color: '#FF3B30', fontSize: 13, fontWeight: 600,
+              cursor: 'pointer', transition: 'all 0.2s', flexShrink: 0, marginLeft: 16,
+            }}
+            onMouseEnter={e => { e.target.style.background = 'rgba(255,59,48,0.1)' }}
+            onMouseLeave={e => { e.target.style.background = 'transparent' }}
+          >
+            Delete All
+          </button>
         </div>
-        <button className="btn-premium btn-primary" style={{ marginTop: 12 }}>Save Changes</button>
+      </div>
+
+      {/* Sticky Save Button */}
+      <div style={{
+        position: 'fixed', bottom: 0, left: 'var(--sidebar-width, 220px)', right: 0,
+        padding: '16px 32px',
+        background: 'var(--surface)',
+        borderTop: '1px solid var(--border)',
+        display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 16,
+        zIndex: 100,
+        transition: 'transform 0.3s ease, opacity 0.3s ease',
+        transform: hasChanges || saved ? 'translateY(0)' : 'translateY(100%)',
+        opacity: hasChanges || saved ? 1 : 0,
+        boxShadow: '0 -4px 20px rgba(0,0,0,0.08)',
+      }}>
+        {saved && (
+          <span style={{ display: 'flex', alignItems: 'center', gap: 6, color: '#34C759', fontSize: 14, fontWeight: 600, animation: 'fadeIn 0.3s ease-out' }}>
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" style={{ width: 18, height: 18 }}>
+              <path fillRule="evenodd" d="M2.25 12c0-5.385 4.365-9.75 9.75-9.75s9.75 4.365 9.75 9.75-4.365 9.75-9.75 9.75S2.25 17.385 2.25 12zm13.36-1.814a.75.75 0 10-1.22-.872l-3.236 4.53L9.53 12.22a.75.75 0 00-1.06 1.06l2.25 2.25a.75.75 0 001.14-.094l3.75-5.25z" clipRule="evenodd" />
+            </svg>
+            Settings saved successfully
+          </span>
+        )}
+        {hasChanges && (
+          <button
+            onClick={handleSave}
+            style={{
+              padding: '10px 28px', borderRadius: 12, border: 'none',
+              background: '#007AFF', color: '#fff', fontSize: 14, fontWeight: 600,
+              cursor: 'pointer', transition: 'all 0.2s',
+              boxShadow: '0 2px 12px rgba(0,122,255,0.3)',
+            }}
+            onMouseEnter={e => { e.target.style.transform = 'scale(1.03)' }}
+            onMouseLeave={e => { e.target.style.transform = 'scale(1)' }}
+          >
+            Save Changes
+          </button>
+        )}
       </div>
     </div>
   )
