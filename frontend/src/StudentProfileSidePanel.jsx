@@ -19,9 +19,44 @@ import {
     BarChart3
 } from 'lucide-react';
 import { Line, Doughnut, Bar } from 'react-chartjs-2';
+import axios from 'axios';
+
+const API = 'http://localhost:5001';
+const apiClient = axios.create({ baseURL: API });
+apiClient.interceptors.request.use(config => {
+    const token = localStorage.getItem('token');
+    if (token) config.headers.Authorization = `Bearer ${token}`;
+    return config;
+});
+
+const typeColorMap = {
+    'Late Arrival': { color: '#007AFF', label: 'Late Arrivals' },
+    'Dress Code': { color: '#AF52DE', label: 'Dress Code' },
+    'Bunk': { color: '#FF3B30', label: 'Bunk' },
+};
+const fallbackColors = ['#FF9500', '#34C759', '#5856D6', '#FF2D55'];
 
 const StudentProfileSidePanel = ({ student, isOpen, onClose, dark }) => {
     const [activeTab, setActiveTab] = useState('overview');
+    const [analytics, setAnalytics] = useState(null);
+    const [analyticsLoading, setAnalyticsLoading] = useState(false);
+
+    // Fetch real analytics whenever student changes
+    useEffect(() => {
+        if (student?.roll_no && isOpen) {
+            setAnalyticsLoading(true);
+            setAnalytics(null);
+            apiClient.get(`/api/students/${student.roll_no}/analytics`)
+                .then(res => {
+                    setAnalytics(res.data.data);
+                    setAnalyticsLoading(false);
+                })
+                .catch(err => {
+                    console.error("Profile analytics fetch failed", err);
+                    setAnalyticsLoading(false);
+                });
+        }
+    }, [student, isOpen]);
 
     // Chart options that dynamically adapt to theme
     const getChartColors = () => ({
@@ -32,14 +67,15 @@ const StudentProfileSidePanel = ({ student, isOpen, onClose, dark }) => {
 
     const chartColors = getChartColors();
 
-    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    // --- Dynamic Monthly Trend Data ---
+    const monthlyLabels = analytics?.monthly_counts?.labels || [];
+    const monthlyValues = analytics?.monthly_counts?.data || [];
 
-    // Updated Monthly Violations Trend Data
     const monthlyTrendData = {
-        labels: months,
+        labels: monthlyLabels,
         datasets: [{
             label: 'Violations',
-            data: [2, 5, 3, 8, 4, 6, 2, 9, 3, 5, 2, 4],
+            data: monthlyValues,
             borderColor: '#007AFF',
             backgroundColor: (ctx) => {
                 const gradient = ctx.chart.ctx.createLinearGradient(0, 0, 0, 400);
@@ -87,11 +123,20 @@ const StudentProfileSidePanel = ({ student, isOpen, onClose, dark }) => {
         }
     };
 
+    // --- Dynamic Donut Breakdown ---
+    const breakdownEntries = analytics ? Object.entries(analytics.breakdown) : [];
+    const donutLabels = breakdownEntries.map(([type]) => type);
+    const donutValues = breakdownEntries.map(([, count]) => count);
+    const donutColors = donutLabels.map((type, i) =>
+        typeColorMap[type]?.color || fallbackColors[i % fallbackColors.length]
+    );
+    const donutTotal = donutValues.reduce((sum, v) => sum + v, 0);
+
     const violationBreakdownData = {
-        labels: ['Late', 'Dress', 'Bunk'],
+        labels: donutLabels,
         datasets: [{
-            data: [12, 5, 3],
-            backgroundColor: ['#007AFF', '#AF52DE', '#FF3B30'],
+            data: donutValues,
+            backgroundColor: donutColors,
             borderWidth: 0,
             hoverOffset: 4
         }]
@@ -103,6 +148,15 @@ const StudentProfileSidePanel = ({ student, isOpen, onClose, dark }) => {
         cutout: '75%',
         plugins: { legend: { display: false } }
     };
+
+    // --- Dynamic Timeline ---
+    const timeline = analytics?.timeline || [];
+
+    // --- Last Violation Date ---
+    const lastViolationDate = timeline.length > 0 ? timeline[0].date : 'None';
+
+    // --- Monthly average ---
+    const monthlyAvg = analytics ? Math.round(donutTotal / Math.max(monthlyLabels.filter((_, i) => monthlyValues[i] > 0).length, 1)) : 0;
 
 
     const getRiskColor = (level) => {
@@ -119,6 +173,10 @@ const StudentProfileSidePanel = ({ student, isOpen, onClose, dark }) => {
             case 'medium': return 'var(--accent-orange-soft)';
             default: return 'var(--accent-green-soft)';
         }
+    };
+
+    const getTimelineColor = (type) => {
+        return typeColorMap[type]?.color || 'var(--accent-orange)';
     };
 
     if (!student) return null;
@@ -155,7 +213,7 @@ const StudentProfileSidePanel = ({ student, isOpen, onClose, dark }) => {
                             <header className="profile-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginTop: 20 }}>
                                 <div style={{ display: 'flex', gap: 24, alignItems: 'center' }}>
                                     <img
-                                        src={`http://localhost:5001/api/students/${student.roll_no}/image`}
+                                        src={`${API}/api/students/${student.roll_no}/image`}
                                         onError={(e) => { e.target.src = `https://ui-avatars.com/api/?name=${student.name}&background=random` }}
                                         alt={student.name}
                                         style={{ width: 120, height: 120, borderRadius: '50%', objectFit: 'cover', border: '4px solid var(--surface)', boxShadow: 'var(--shadow-lg)' }}
@@ -166,11 +224,9 @@ const StudentProfileSidePanel = ({ student, isOpen, onClose, dark }) => {
                                         <div style={{ display: 'flex', gap: 8, color: 'var(--text-secondary)', fontSize: 14 }}>
                                             <span>B.Tech</span>
                                             <span style={{ opacity: 0.3 }}>•</span>
-                                            <span>{student.dept || 'CSE'}</span>
+                                            <span>{student.department || student.dept || 'CSE'}</span>
                                             <span style={{ opacity: 0.3 }}>•</span>
-                                            <span>Sem 6</span>
-                                            <span style={{ opacity: 0.3 }}>•</span>
-                                            <span>Sec A</span>
+                                            <span>Sec {student.section || 'A'}</span>
                                         </div>
                                         <div style={{ marginTop: 16 }}>
                                             <span style={{
@@ -185,105 +241,122 @@ const StudentProfileSidePanel = ({ student, isOpen, onClose, dark }) => {
 
                                 <div style={{ display: 'flex', gap: 40, background: 'var(--surface)', padding: '20px 32px', borderRadius: 24, boxShadow: 'var(--shadow-md)' }}>
                                     <div style={{ textAlign: 'center' }}>
-                                        <div style={{ fontSize: 24, fontWeight: 700 }}>{student.violation_count || 0}</div>
+                                        <div style={{ fontSize: 24, fontWeight: 700 }}>{analytics?.total ?? (student.violation_count || 0)}</div>
                                         <div style={{ fontSize: 11, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: 1, marginTop: 4 }}>Total</div>
                                     </div>
                                     <div style={{ textAlign: 'center' }}>
-                                        <div style={{ fontSize: 24, fontWeight: 700 }}>{Math.floor((student.violation_count || 0) / 2)}</div>
+                                        <div style={{ fontSize: 24, fontWeight: 700 }}>{monthlyAvg}</div>
                                         <div style={{ fontSize: 11, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: 1, marginTop: 4 }}>Monthly</div>
                                     </div>
                                     <div style={{ textAlign: 'center' }}>
-                                        <div style={{ fontSize: 14, fontWeight: 600, marginTop: 8 }}>{student.violation_count > 0 ? 'Oct 24, 2023' : 'None'}</div>
+                                        <div style={{ fontSize: 14, fontWeight: 600, marginTop: 8 }}>{lastViolationDate}</div>
                                         <div style={{ fontSize: 11, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: 1, marginTop: 4 }}>Last Violation</div>
                                     </div>
                                 </div>
                             </header>
 
-                            {/* SECTION 2 – MONTHLY VIOLATIONS TREND */}
-                            <div className="premium-card" style={{ padding: '32px' }}>
-                                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 24 }}>
-                                    <div>
-                                        <h3 style={{ fontSize: 18, fontWeight: 700 }}>Monthly Violations Trend</h3>
-                                        <p style={{ fontSize: 13, color: 'var(--text-secondary)', marginTop: 4 }}>System-wide compliance monitoring over the past year</p>
-                                    </div>
-                                    <TrendingUp size={20} color="var(--accent-blue)" />
+                            {/* Loading State */}
+                            {analyticsLoading ? (
+                                <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', padding: '60px 0' }}>
+                                    <div style={{ width: 36, height: 36, border: '3px solid var(--accent-blue)', borderTopColor: 'transparent', borderRadius: '50%', animation: 'spin 1s linear infinite' }}></div>
                                 </div>
-                                <div style={{ height: 250 }}>
-                                    <Line data={monthlyTrendData} options={trendOptions} />
+                            ) : analytics && analytics.total === 0 ? (
+                                /* Empty State */
+                                <div className="premium-card" style={{ padding: 48, textAlign: 'center' }}>
+                                    <ShieldCheck size={48} color="var(--accent-green)" style={{ marginBottom: 16 }} />
+                                    <h3 style={{ fontSize: 20, fontWeight: 700, marginBottom: 8 }}>No Violations Recorded</h3>
+                                    <p style={{ color: 'var(--text-secondary)', fontSize: 14 }}>
+                                        This student has a clean disciplinary record. All charts reflect zero violations.
+                                    </p>
                                 </div>
-                            </div>
+                            ) : (
+                                <>
+                                    {/* SECTION 2 – MONTHLY VIOLATIONS TREND */}
+                                    <div className="premium-card" style={{ padding: '32px' }}>
+                                        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 24 }}>
+                                            <div>
+                                                <h3 style={{ fontSize: 18, fontWeight: 700 }}>Monthly Violations Trend</h3>
+                                                <p style={{ fontSize: 13, color: 'var(--text-secondary)', marginTop: 4 }}>Student-specific compliance over the past year</p>
+                                            </div>
+                                            <TrendingUp size={20} color="var(--accent-blue)" />
+                                        </div>
+                                        <div style={{ height: 250 }}>
+                                            <Line data={monthlyTrendData} options={trendOptions} />
+                                        </div>
+                                    </div>
 
-                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 32, alignItems: 'center' }}>
-                                {/* SECTION 3 – VIOLATION BREAKDOWN */}
-                                <div className="premium-card" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center' }}>
-                                    <div style={{ width: '100%', display: 'flex', justifyContent: 'space-between', marginBottom: 24 }}>
-                                        <h3 style={{ fontSize: 16, fontWeight: 700 }}>Violation Breakdown</h3>
-                                        <PieChartIcon size={18} color="var(--accent-purple)" />
-                                    </div>
-                                    <div style={{ height: 180, width: 180, position: 'relative' }}>
-                                        <Doughnut data={violationBreakdownData} options={donutOptions} />
-                                        <div style={{
-                                            position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%)',
-                                            textAlign: 'center'
-                                        }}>
-                                            <div style={{ fontSize: 24, fontWeight: 700 }}>{student.violation_count || 20}</div>
-                                            <div style={{ fontSize: 11, color: 'var(--text-secondary)', textTransform: 'uppercase' }}>Total</div>
-                                        </div>
-                                    </div>
-                                    <div style={{ display: 'flex', gap: 16, marginTop: 24, fontSize: 12, color: 'var(--text-secondary)' }}>
-                                        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                                            <div style={{ width: 8, height: 8, borderRadius: '50%', background: '#007AFF' }}></div> Late Arrivals
-                                        </div>
-                                        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                                            <div style={{ width: 8, height: 8, borderRadius: '50%', background: '#AF52DE' }}></div> Dress Code
-                                        </div>
-                                        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                                            <div style={{ width: 8, height: 8, borderRadius: '50%', background: '#FF3B30' }}></div> Bunk
-                                        </div>
-                                    </div>
-                                </div>
-
-                                {/* SECTION 4 – VIOLATION TIMELINE */}
-                                <div className="premium-card">
-                                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 24 }}>
-                                        <h3 style={{ fontSize: 16, fontWeight: 700 }}>Violation Timeline</h3>
-                                        <Calendar size={18} color="var(--accent-orange)" />
-                                    </div>
-                                    <div style={{ display: 'flex', flexDirection: 'column', gap: 0, position: 'relative', paddingLeft: 20 }}>
-                                        <div style={{
-                                            position: 'absolute', left: 4, top: 0, bottom: 0, width: 2,
-                                            background: 'var(--border)', borderRadius: 1
-                                        }}></div>
-
-                                        {[
-                                            { date: 'Oct 12, 2023', type: 'Late Arrival', color: 'var(--accent-blue)', desc: '15 mins late for morning session' },
-                                            { date: 'Sep 28, 2023', type: 'Dress Code', color: 'var(--accent-purple)', desc: 'Improper uniform in lab' },
-                                            { date: 'Sep 05, 2023', type: 'Bunk', color: 'var(--accent-red)', desc: 'Absent from electronics lecture' },
-                                        ].map((item, i) => (
-                                            <div
-                                                key={i}
-                                                style={{
-                                                    padding: '12px 0',
-                                                    display: 'flex', gap: 16, alignItems: 'flex-start'
-                                                }}
-                                            >
+                                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 32, alignItems: 'center' }}>
+                                        {/* SECTION 3 – VIOLATION BREAKDOWN */}
+                                        <div className="premium-card" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center' }}>
+                                            <div style={{ width: '100%', display: 'flex', justifyContent: 'space-between', marginBottom: 24 }}>
+                                                <h3 style={{ fontSize: 16, fontWeight: 700 }}>Violation Breakdown</h3>
+                                                <PieChartIcon size={18} color="var(--accent-purple)" />
+                                            </div>
+                                            <div style={{ height: 180, width: 180, position: 'relative' }}>
+                                                <Doughnut data={violationBreakdownData} options={donutOptions} />
                                                 <div style={{
-                                                    width: 10, height: 10, borderRadius: '50%', background: item.color,
-                                                    marginTop: 4, marginLeft: -24, border: '2px solid var(--surface)', zIndex: 1,
-                                                    boxShadow: '0 0 0 4px var(--bg)'
-                                                }}></div>
-                                                <div style={{ flex: 1 }}>
-                                                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 2 }}>
-                                                        <span style={{ fontWeight: 600, fontSize: 14 }}>{item.type}</span>
-                                                        <span style={{ fontSize: 11, color: 'var(--text-secondary)' }}>{item.date}</span>
-                                                    </div>
-                                                    <p style={{ color: 'var(--text-secondary)', fontSize: 12 }}>{item.desc}</p>
+                                                    position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%)',
+                                                    textAlign: 'center'
+                                                }}>
+                                                    <div style={{ fontSize: 24, fontWeight: 700 }}>{donutTotal}</div>
+                                                    <div style={{ fontSize: 11, color: 'var(--text-secondary)', textTransform: 'uppercase' }}>Total</div>
                                                 </div>
                                             </div>
-                                        ))}
+                                            <div style={{ display: 'flex', gap: 16, marginTop: 24, fontSize: 12, color: 'var(--text-secondary)', flexWrap: 'wrap', justifyContent: 'center' }}>
+                                                {donutLabels.map((label, i) => (
+                                                    <div key={label} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                                                        <div style={{ width: 8, height: 8, borderRadius: '50%', background: donutColors[i] }}></div>
+                                                        {label} ({donutValues[i]})
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        </div>
+
+                                        {/* SECTION 4 – VIOLATION TIMELINE */}
+                                        <div className="premium-card">
+                                            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 24 }}>
+                                                <h3 style={{ fontSize: 16, fontWeight: 700 }}>Violation Timeline</h3>
+                                                <Calendar size={18} color="var(--accent-orange)" />
+                                            </div>
+                                            <div style={{ display: 'flex', flexDirection: 'column', gap: 0, position: 'relative', paddingLeft: 20 }}>
+                                                <div style={{
+                                                    position: 'absolute', left: 4, top: 0, bottom: 0, width: 2,
+                                                    background: 'var(--border)', borderRadius: 1
+                                                }}></div>
+
+                                                {timeline.length === 0 ? (
+                                                    <div style={{ textAlign: 'center', padding: '24px 0', color: 'var(--text-tertiary)', fontSize: 13 }}>
+                                                        No violations on record.
+                                                    </div>
+                                                ) : (
+                                                    timeline.map((item, i) => (
+                                                        <div
+                                                            key={item.id || i}
+                                                            style={{
+                                                                padding: '12px 0',
+                                                                display: 'flex', gap: 16, alignItems: 'flex-start'
+                                                            }}
+                                                        >
+                                                            <div style={{
+                                                                width: 10, height: 10, borderRadius: '50%', background: getTimelineColor(item.type),
+                                                                marginTop: 4, marginLeft: -24, border: '2px solid var(--surface)', zIndex: 1,
+                                                                boxShadow: '0 0 0 4px var(--bg)'
+                                                            }}></div>
+                                                            <div style={{ flex: 1 }}>
+                                                                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 2 }}>
+                                                                    <span style={{ fontWeight: 600, fontSize: 14 }}>{item.type}</span>
+                                                                    <span style={{ fontSize: 11, color: 'var(--text-secondary)' }}>{item.date}</span>
+                                                                </div>
+                                                                <p style={{ color: 'var(--text-secondary)', fontSize: 12 }}>{item.remark}</p>
+                                                            </div>
+                                                        </div>
+                                                    ))
+                                                )}
+                                            </div>
+                                        </div>
                                     </div>
-                                </div>
-                            </div>
+                                </>
+                            )}
 
                             {/* SECTION 5 – ACTION CONTROLS */}
                             <div style={{

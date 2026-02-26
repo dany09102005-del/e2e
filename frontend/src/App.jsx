@@ -1826,19 +1826,9 @@ export default function App() {
       ])
 
       const realViolations = vRes.data || [];
-      const dummyViolations = [
-        { roll_no: '21CS001', student_name: 'Aditya Kumar', type: 'Late Entry', location: 'A Block', date: '2026-02-23 09:15 AM', resolved: false },
-        { roll_no: '21CS014', student_name: 'Sneha Reddy', type: 'Dress Code', location: 'B Block', date: '2026-02-23 10:30 AM', resolved: true },
-        { roll_no: '21CS042', student_name: 'Vikram Singh', type: 'Bunk', location: 'Central Block', date: '2026-02-22 02:45 PM', resolved: false },
-        { roll_no: '21CS089', student_name: 'Priya Sharma', type: 'Late Entry', location: 'D Block', date: '2026-02-22 09:05 AM', resolved: true },
-        { roll_no: '21CS112', student_name: 'Rahul Verma', type: 'Discipline', location: 'U Block', date: '2026-02-21 11:20 AM', resolved: false },
-        { roll_no: '21CS156', student_name: 'Anjali Das', type: 'Late Entry', location: 'N Block', date: '2026-02-21 09:40 AM', resolved: false },
-        { roll_no: '21CS201', student_name: 'Suresh Raina', type: 'Bunk', location: 'Playground', date: '2026-02-20 03:15 PM', resolved: true },
-        { roll_no: '21CS005', student_name: 'Karthik Raja', type: 'Dress Code', location: 'C Block', date: '2026-02-20 10:00 AM', resolved: false },
-      ];
 
       setStudents(sRes.data || [])
-      setViolations(realViolations.length > 0 ? realViolations : dummyViolations)
+      setViolations(realViolations)
     } catch { }
   }
 
