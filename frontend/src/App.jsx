@@ -367,7 +367,10 @@ function Dashboard() {
     total_violations: 0,
     today_activity: 0,
     monthly_chart: { labels: [], data: [] },
-    most_active_location: { name: "N/A", count: 0 }
+    most_active_location: { name: "N/A", count: 0 },
+    dept_breakdown: { labels: [], data: [] },
+    type_breakdown: { labels: [], data: [] },
+    recent_activity: []
   }
 
   // KPI data
@@ -464,27 +467,21 @@ function Dashboard() {
   }
 
   // Bar chart – Violations by Department
+  const deptColors = [
+    'rgba(10, 132, 255, 0.3)', 'rgba(175, 82, 222, 0.3)', 'rgba(255, 149, 0, 0.3)',
+    'rgba(52, 199, 89, 0.3)', 'rgba(255, 59, 48, 0.3)', 'rgba(88, 86, 214, 0.3)'
+  ]
+  const deptHoverColors = [
+    'rgba(10, 132, 255, 0.5)', 'rgba(175, 82, 222, 0.5)', 'rgba(255, 149, 0, 0.5)',
+    'rgba(52, 199, 89, 0.5)', 'rgba(255, 59, 48, 0.5)', 'rgba(88, 86, 214, 0.5)'
+  ]
   const barData = {
-    labels: ['CSE', 'ECE', 'MECH', 'CIVIL', 'EEE', 'IT'],
+    labels: safeData.dept_breakdown.labels,
     datasets: [{
       label: 'Violations',
-      data: [42, 28, 35, 18, 24, 31],
-      backgroundColor: [
-        'rgba(10, 132, 255, 0.3)', // CSE - Light Blue
-        'rgba(175, 82, 222, 0.3)', // ECE - Light Purple
-        'rgba(255, 149, 0, 0.3)',  // MECH - Light Orange
-        'rgba(52, 199, 89, 0.3)',  // CIVIL - Light Green
-        'rgba(255, 59, 48, 0.3)',  // EEE - Light Red
-        'rgba(88, 86, 214, 0.3)',  // IT - Indigo
-      ],
-      hoverBackgroundColor: [
-        'rgba(10, 132, 255, 0.5)',
-        'rgba(175, 82, 222, 0.5)',
-        'rgba(255, 149, 0, 0.5)',
-        'rgba(52, 199, 89, 0.5)',
-        'rgba(255, 59, 48, 0.5)',
-        'rgba(88, 86, 214, 0.5)',
-      ],
+      data: safeData.dept_breakdown.data,
+      backgroundColor: safeData.dept_breakdown.labels.map((_, i) => deptColors[i % deptColors.length]),
+      hoverBackgroundColor: safeData.dept_breakdown.labels.map((_, i) => deptHoverColors[i % deptHoverColors.length]),
       borderRadius: 12,
       borderSkipped: false,
       barPercentage: 0.5,
@@ -529,15 +526,12 @@ function Dashboard() {
   }
 
   // Donut chart – Violation Types
+  const typeColors = ['#0A84FF', '#AF52DE', '#FF453A', '#FF9500', '#34C759', '#5856D6']
   const donutData = {
-    labels: ['Late Arrival', 'Dress Code', 'Bunk'],
+    labels: safeData.type_breakdown.labels,
     datasets: [{
-      data: [38, 20, 17],
-      backgroundColor: [
-        '#0A84FF',
-        '#AF52DE',
-        '#FF453A',
-      ],
+      data: safeData.type_breakdown.data,
+      backgroundColor: safeData.type_breakdown.labels.map((_, i) => typeColors[i % typeColors.length]),
       borderWidth: 0,
       spacing: 6,
       borderRadius: 10,
@@ -565,21 +559,21 @@ function Dashboard() {
     },
   }
 
-  const donutLegend = [
-    { label: 'Late Arrival', color: '#0A84FF' },
-    { label: 'Dress Code', color: '#AF52DE' },
-    { label: 'Bunk', color: '#FF453A' },
-  ]
+  const donutTotal = safeData.type_breakdown.data.reduce((sum, v) => sum + v, 0)
 
-  // Recent Activity
-  const activities = [
-    { dot: 'red', text: <><strong>John Doe</strong> received 3rd dress code violation</>, time: '2 min ago', badge: 'critical', badgeLabel: 'Critical' },
-    { dot: 'orange', text: <><strong>Jane Smith</strong> marked late for Engineering Math</>, time: '15 min ago', badge: 'warning', badgeLabel: 'Warning' },
-    { dot: 'blue', text: <><strong>Prof. Kumar</strong> submitted attendance for CSE-A</>, time: '32 min ago', badge: 'info', badgeLabel: 'Info' },
-    { dot: 'green', text: <><strong>Mike Chen</strong> violation resolved after counseling</>, time: '1 hr ago', badge: 'resolved', badgeLabel: 'Resolved' },
-    { dot: 'orange', text: <><strong>Sarah Lee</strong> absent from 3 consecutive classes</>, time: '2 hrs ago', badge: 'warning', badgeLabel: 'Warning' },
-    { dot: 'red', text: <><strong>Alex Park</strong> flagged as high-risk student</>, time: '3 hrs ago', badge: 'critical', badgeLabel: 'Critical' },
-  ]
+  const donutLegend = safeData.type_breakdown.labels.map((label, i) => ({
+    label,
+    color: typeColors[i % typeColors.length]
+  }))
+
+  // Recent Activity from API
+  const activities = safeData.recent_activity.map(v => ({
+    dot: v.dot,
+    text: <><strong>{v.roll_no}</strong> — {v.type}: {v.remarks || 'No details'}</>,
+    time: v.time,
+    badge: v.badge,
+    badgeLabel: v.status
+  }))
 
   return (
     <>
@@ -630,7 +624,7 @@ function Dashboard() {
           <div className="donut-wrapper">
             <Doughnut data={donutData} options={donutOptions} />
             <div className="donut-center">
-              <div className="donut-number">100</div>
+              <div className="donut-number">{donutTotal}</div>
               <div className="donut-label">Total</div>
             </div>
           </div>
@@ -686,17 +680,26 @@ function StudentsPage({ students, token, onRefresh, onStudentClick, showRegister
     name: '', roll_no: '', dept: 'CSE', section: 'A', year: '3rd Year', phone: '', email: '', threshold: '75', imagePreview: null, imageFile: null
   })
   const [dragging, setDragging] = useState(false)
+  const [profileAnalytics, setProfileAnalytics] = useState(null)
+  const [profileLoading, setProfileLoading] = useState(false)
 
-  // Sophisticated Mock Data for Illustration
-  const mockDetails = {
-    'B.Tech': ['2020-24', '2021-25', '2022-26', '2023-27'],
-    'CSE': ['A', 'B', 'C', 'D'],
-    'Violations': [
-      { date: 'Oct 12, 2023', type: 'Late Entry', remark: 'Arrived 15 mins after session start.' },
-      { date: 'Sep 28, 2023', type: 'Bunk', remark: 'Left campus during 3rd period without exit pass.' },
-      { date: 'Sep 05, 2023', type: 'Dress Code', remark: 'Wearing informal footwear in lab.' },
-    ]
-  }
+  // Fetch unique student analytics when a profile is selected
+  useEffect(() => {
+    if (selectedStudent?.roll_no) {
+      setProfileLoading(true)
+      apiClient.get(`/api/students/${selectedStudent.roll_no}/analytics`)
+        .then(res => {
+          setProfileAnalytics(res.data.data)
+          setProfileLoading(false)
+        })
+        .catch(err => {
+          console.error("Failed fetching profile analytics", err)
+          setProfileLoading(false)
+        })
+    }
+  }, [selectedStudent])
+
+
 
   // Filter students by active dropdown selections
   const filteredStudents = students.filter(s => {
@@ -757,7 +760,7 @@ function StudentsPage({ students, token, onRefresh, onStudentClick, showRegister
           <div className="filter-group">
             <span className="filter-label">Batch</span>
             <select className="filter-input" value={filter.batch} onChange={e => setFilter({ ...filter, batch: e.target.value })}>
-              {mockDetails['B.Tech'].map(b => <option key={b}>{b}</option>)}
+              <option>2020-24</option><option>2021-25</option><option>2022-26</option><option>2023-27</option>
             </select>
           </div>
           <div className="filter-group">
@@ -775,7 +778,7 @@ function StudentsPage({ students, token, onRefresh, onStudentClick, showRegister
           <div className="filter-group">
             <span className="filter-label">Section</span>
             <select className="filter-input" value={filter.section} onChange={e => setFilter({ ...filter, section: e.target.value })}>
-              {mockDetails['CSE'].map(s => <option key={s}>{s}</option>)}
+              <option>A</option><option>B</option><option>C</option><option>D</option>
             </select>
           </div>
           <button className="btn-primary" onClick={() => setIsApplied(true)}>
@@ -1027,30 +1030,58 @@ function StudentsPage({ students, token, onRefresh, onStudentClick, showRegister
               </div>
 
               <div className="modal-body">
-                {activeTab === 'overview' && (
-                  <div style={{ color: 'var(--text-secondary)', fontSize: 14, lineHeight: 1.6 }}>
-                    This student has a consistent attendance record in the current semester.
-                    Recent patterns show {selectedStudent.violation_count || 0} alerts related to disciplinary policies.
+                {profileLoading ? (
+                  <div style={{ display: 'flex', justifyContent: 'center', padding: '40px 0' }}>
+                    <div className="spinner" style={{ width: 30, height: 30, border: '3px solid var(--accent-blue)', borderTopColor: 'transparent', borderRadius: '50%', animation: 'spin 1s linear infinite' }}></div>
                   </div>
-                )}
-                {activeTab === 'history' && (
-                  <div className="timeline">
-                    {mockDetails.Violations.map((v, i) => (
-                      <div className="timeline-item" key={i}>
-                        <div className="timeline-date">{v.date}</div>
-                        <div className="timeline-content">
-                          <strong style={{ color: 'var(--accent-red)' }}>{v.type}</strong>: {v.remark}
+                ) : (
+                  <>
+                    {activeTab === 'overview' && profileAnalytics && (
+                      <div style={{ color: 'var(--text-secondary)', fontSize: 14, lineHeight: 1.6 }}>
+                        <div style={{ marginBottom: 16 }}>
+                          Recent patterns show a total of <strong style={{ color: 'var(--text-primary)' }}>{profileAnalytics.total}</strong> alerts related to disciplinary policies.
                         </div>
+
+                        {profileAnalytics.total > 0 && (
+                          <div style={{ background: 'var(--bg)', padding: 16, borderRadius: 12 }}>
+                            <h4 style={{ margin: '0 0 12px 0', fontSize: 14, color: 'var(--text-primary)' }}>Violation Breakdown</h4>
+                            {Object.entries(profileAnalytics.breakdown).map(([type, count]) => (
+                              <div key={type} style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderBottom: '1px solid var(--border)', fontSize: 13 }}>
+                                <span>{type}</span>
+                                <span style={{ fontWeight: 600, color: 'var(--accent-red)' }}>{count}</span>
+                              </div>
+                            ))}
+                          </div>
+                        )}
                       </div>
-                    ))}
-                  </div>
-                )}
-                {activeTab === 'remarks' && (
-                  <textarea
-                    className="filter-input"
-                    placeholder="Enter counselor remarks here..."
-                    style={{ width: '100%', height: 120, resize: 'none' }}
-                  ></textarea>
+                    )}
+                    {activeTab === 'history' && profileAnalytics && (
+                      <div className="timeline">
+                        {profileAnalytics.timeline.length === 0 ? (
+                          <div style={{ textAlign: 'center', padding: '40px 0', color: 'var(--text-tertiary)', fontSize: 14 }}>
+                            No violation history recorded.
+                          </div>
+                        ) : (
+                          profileAnalytics.timeline.map((v, i) => (
+                            <div className="timeline-item" key={i}>
+                              <div className="timeline-date">{v.date}</div>
+                              <div className="timeline-content">
+                                <strong style={{ color: 'var(--accent-red)' }}>{v.type}</strong>: {v.remark}
+                                <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginTop: 4 }}>📍 {v.location}</div>
+                              </div>
+                            </div>
+                          ))
+                        )}
+                      </div>
+                    )}
+                    {activeTab === 'remarks' && (
+                      <textarea
+                        className="filter-input"
+                        placeholder="Enter counselor remarks here..."
+                        style={{ width: '100%', height: 120, resize: 'none' }}
+                      ></textarea>
+                    )}
+                  </>
                 )}
               </div>
 
@@ -1137,7 +1168,7 @@ function DetectPage({ onDetect }) {
         section: result.student.section,
         status: "Pending"
       }
-      
+
       await apiClient.post('/api/violations/', payload)
       alert('Violation confirmed and recorded!')
       setResult(null)
@@ -1244,7 +1275,7 @@ function DetectPage({ onDetect }) {
             <div className="detection-results-panel fade-in-up">
               {result && (
                 <div className="detect-card" style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
-                  
+
                   {result.matched ? (
                     <>
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
@@ -1253,20 +1284,20 @@ function DetectPage({ onDetect }) {
                           {result.confidence}% Match
                         </span>
                       </div>
-                      
+
                       <div style={{ display: 'flex', gap: 16, marginBottom: 24 }}>
-                         <div style={{ flex: 1, textAlign: 'center' }}>
-                            <div className="preview-container-detect" style={{ height: 180, marginBottom: 8 }}>
-                                <img src={preview} alt="Captured Upload" style={{ objectFit: 'cover', width: '100%', height: '100%' }} />
-                            </div>
-                            <span style={{ fontSize: 13, color: 'var(--text-secondary)', fontWeight: 500 }}>Captured Image</span>
-                         </div>
-                         <div style={{ flex: 1, textAlign: 'center' }}>
-                            <div className="preview-container-detect" style={{ height: 180, marginBottom: 8, border: '2px solid var(--accent-green)' }}>
-                                <img src={`${API}/api/students/${result.student.roll_no}/image`} alt="DB Match" style={{ objectFit: 'cover', width: '100%', height: '100%' }} />
-                            </div>
-                            <span style={{ fontSize: 13, color: 'var(--text-secondary)', fontWeight: 500 }}>Database Match</span>
-                         </div>
+                        <div style={{ flex: 1, textAlign: 'center' }}>
+                          <div className="preview-container-detect" style={{ height: 180, marginBottom: 8 }}>
+                            <img src={preview} alt="Captured Upload" style={{ objectFit: 'cover', width: '100%', height: '100%' }} />
+                          </div>
+                          <span style={{ fontSize: 13, color: 'var(--text-secondary)', fontWeight: 500 }}>Captured Image</span>
+                        </div>
+                        <div style={{ flex: 1, textAlign: 'center' }}>
+                          <div className="preview-container-detect" style={{ height: 180, marginBottom: 8, border: '2px solid var(--accent-green)' }}>
+                            <img src={`${API}/api/students/${result.student.roll_no}/image`} alt="DB Match" style={{ objectFit: 'cover', width: '100%', height: '100%' }} />
+                          </div>
+                          <span style={{ fontSize: 13, color: 'var(--text-secondary)', fontWeight: 500 }}>Database Match</span>
+                        </div>
                       </div>
 
                       <div style={{ padding: 16, background: 'var(--bg)', borderRadius: 12, marginBottom: 'auto' }}>
@@ -1290,10 +1321,10 @@ function DetectPage({ onDetect }) {
 
                       <div style={{ marginBottom: 16 }}>
                         <span className="detect-select-label" style={{ display: 'block', marginBottom: 8 }}>Violation Type</span>
-                        <select 
-                          className="filter-input" 
-                          style={{ width: '100%' }} 
-                          value={violationType} 
+                        <select
+                          className="filter-input"
+                          style={{ width: '100%' }}
+                          value={violationType}
                           onChange={(e) => setViolationType(e.target.value)}
                         >
                           <option value="Late Arrival">Late Arrival</option>
@@ -1304,13 +1335,13 @@ function DetectPage({ onDetect }) {
 
                       <div style={{ marginBottom: 20 }}>
                         <span className="detect-select-label" style={{ display: 'block', marginBottom: 8 }}>Remarks</span>
-                        <input 
-                          type="text" 
-                          className="filter-input" 
-                          style={{ width: '100%' }} 
-                          value={remarks} 
+                        <input
+                          type="text"
+                          className="filter-input"
+                          style={{ width: '100%' }}
+                          value={remarks}
                           onChange={(e) => setRemarks(e.target.value)}
-                          placeholder="e.g. Detected via camera" 
+                          placeholder="e.g. Detected via camera"
                         />
                       </div>
 

@@ -76,6 +76,66 @@ def get_dashboard_kpis():
             most_active_location = top_location_agg[0]["_id"] or "Unknown"
             most_active_location_count = top_location_agg[0]["count"]
 
+        # 6. Violations by Department (Bar Chart)
+        dept_pipeline = [
+            {"$group": {"_id": "$department", "count": {"$sum": 1}}},
+            {"$sort": {"count": -1}}
+        ]
+        dept_agg = list(db.violations.aggregate(dept_pipeline))
+        dept_labels = [d["_id"] or "Unknown" for d in dept_agg]
+        dept_data = [d["count"] for d in dept_agg]
+        
+        # 7. Violations by Type (Donut Chart)
+        type_pipeline = [
+            {"$group": {"_id": "$type", "count": {"$sum": 1}}},
+            {"$sort": {"count": -1}}
+        ]
+        type_agg = list(db.violations.aggregate(type_pipeline))
+        type_labels = [t["_id"] or "Unknown" for t in type_agg]
+        type_data = [t["count"] for t in type_agg]
+        
+        # 8. Recent Activity (Timeline - last 10 violations)
+        recent_violations = list(db.violations.find().sort("created_at", -1).limit(10))
+        recent_activity = []
+        for v in recent_violations:
+            dt = v.get("created_at")
+            time_str = ""
+            if dt:
+                delta = datetime.utcnow() - dt
+                mins = int(delta.total_seconds() / 60)
+                if mins < 1:
+                    time_str = "Just now"
+                elif mins < 60:
+                    time_str = f"{mins} min ago"
+                elif mins < 1440:
+                    time_str = f"{mins // 60} hr ago"
+                else:
+                    time_str = f"{mins // 1440} days ago"
+                    
+            v_type = v.get("type", "Unknown")
+            badge = "warning"
+            dot = "orange"
+            if "bunk" in v_type.lower():
+                badge = "critical"
+                dot = "red"
+            elif "dress" in v_type.lower():
+                badge = "info"
+                dot = "blue"
+            elif "late" in v_type.lower():
+                badge = "warning"
+                dot = "orange"
+                
+            recent_activity.append({
+                "roll_no": v.get("roll_no", ""),
+                "type": v_type,
+                "remarks": v.get("remarks", ""),
+                "location": v.get("location", ""),
+                "status": v.get("status", "Pending"),
+                "time": time_str,
+                "badge": badge,
+                "dot": dot
+            })
+
         return jsonify({
             "success": True,
             "data": {
@@ -89,7 +149,16 @@ def get_dashboard_kpis():
                 "most_active_location": {
                     "name": most_active_location,
                     "count": most_active_location_count
-                }
+                },
+                "dept_breakdown": {
+                    "labels": dept_labels,
+                    "data": dept_data
+                },
+                "type_breakdown": {
+                    "labels": type_labels,
+                    "data": type_data
+                },
+                "recent_activity": recent_activity
             }
         }), 200
 

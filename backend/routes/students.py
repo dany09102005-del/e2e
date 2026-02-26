@@ -163,3 +163,15 @@ def debug_db_state():
         "indexes": {k: str(v) for k, v in indexes.items()},
         "students": all_students
     }), 200
+
+@students_bp.route("/<roll_no>/analytics", methods=["GET"])
+@jwt_required()
+def get_student_analytics(roll_no):
+    try:
+        analytics = StudentService.get_student_analytics(roll_no.upper())
+        if not analytics:
+            return jsonify({"success": False, "error": "Student not found"}), 404
+            
+        return jsonify({"success": True, "data": analytics}), 200
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
