@@ -1075,6 +1075,8 @@ function DetectPage({ onDetect }) {
   const [result, setResult] = useState(null)
   const [loading, setLoading] = useState(false)
   const [dragging, setDragging] = useState(false)
+  const [violationType, setViolationType] = useState('Late Arrival')
+  const [remarks, setRemarks] = useState('Detected via camera')
   const fileInputRef = useRef(null)
 
   const blockOptions = [
@@ -1114,27 +1116,36 @@ function DetectPage({ onDetect }) {
       fd.append('period', period)
       const res = await apiClient.post('/api/detection/match', fd)
       setResult(res.data)
-    } catch {
-      // Mock result for demonstration if API fails
-      setResult({
-        absentees: ['Roll 102', 'Roll 105', 'Roll 118'],
-        detected_count: 42,
-        violation_count: 3,
-        types: ['Late Entrance', 'Dress Code']
-      })
+    } catch (err) {
+      alert("Analysis Failed: " + (err.response?.data?.error || err.message))
     }
     setLoading(false)
   }
 
   const handleConfirm = async () => {
-    if (!result) return
+    if (!result?.matched) return
+    if (!violationType) return alert('Please select a violation type')
+    if (!remarks) return alert('Please enter remarks')
+
     try {
-      await apiClient.post('/api/violations/', result)
-      alert('Violation confirmed!')
+      const payload = {
+        type: violationType,
+        location: location,
+        remarks: remarks,
+        roll_no: result.student.roll_no,
+        department: result.student.department,
+        section: result.student.section,
+        status: "Pending"
+      }
+      
+      await apiClient.post('/api/violations/', payload)
+      alert('Violation confirmed and recorded!')
       setResult(null)
+      setFile(null)
+      setPreview(null)
       if (onDetect) onDetect()
-    } catch {
-      alert('Confirmation error')
+    } catch (err) {
+      alert('Confirmation error: ' + (err.response?.data?.error || err.message))
     }
   }
 
@@ -1216,51 +1227,107 @@ function DetectPage({ onDetect }) {
                 Upload photo to begin automated violation detection.
               </p>
             </div>
-          ) : (
-            <div className="detection-results-panel">
-              <div className="preview-container-detect">
-                <img src={preview} alt="Classroom Preview" />
+          ) : loading ? (
+            <div className="detection-results-panel fade-in-up">
+              <div className="detect-card" style={{ height: '100%', display: 'flex', flexDirection: 'column', gap: 20 }}>
+                <div className="shimmer-line" style={{ width: '40%', height: 24, borderRadius: 6 }}></div>
+                <div style={{ display: 'flex', gap: 16 }}>
+                  <div className="shimmer-block" style={{ flex: 1, height: 200, borderRadius: 12 }}></div>
+                  <div className="shimmer-block" style={{ flex: 1, height: 200, borderRadius: 12 }}></div>
+                </div>
+                <div className="shimmer-line" style={{ width: '80%', height: 16, borderRadius: 4 }}></div>
+                <div className="shimmer-line" style={{ width: '60%', height: 16, borderRadius: 4 }}></div>
+                <div className="shimmer-block" style={{ height: 48, borderRadius: 12, marginTop: 'auto' }}></div>
               </div>
-
+            </div>
+          ) : (
+            <div className="detection-results-panel fade-in-up">
               {result && (
-                <div className="detect-card" style={{ animation: 'fadeInUp 0.6s ease-out' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <h3 style={{ fontSize: 18 }}>Detection Summary</h3>
-                    <span className="violation-pill" style={{ background: 'var(--accent-green-soft)', color: 'var(--accent-green)' }}>
-                      Completed
-                    </span>
-                  </div>
+                <div className="detect-card" style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
+                  
+                  {result.matched ? (
+                    <>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+                        <h3 style={{ fontSize: 18 }}>Face Match Successful</h3>
+                        <span className="violation-pill" style={{ background: 'var(--accent-green-soft)', color: 'var(--accent-green)' }}>
+                          {result.confidence}% Match
+                        </span>
+                      </div>
+                      
+                      <div style={{ display: 'flex', gap: 16, marginBottom: 24 }}>
+                         <div style={{ flex: 1, textAlign: 'center' }}>
+                            <div className="preview-container-detect" style={{ height: 180, marginBottom: 8 }}>
+                                <img src={preview} alt="Captured Upload" style={{ objectFit: 'cover', width: '100%', height: '100%' }} />
+                            </div>
+                            <span style={{ fontSize: 13, color: 'var(--text-secondary)', fontWeight: 500 }}>Captured Image</span>
+                         </div>
+                         <div style={{ flex: 1, textAlign: 'center' }}>
+                            <div className="preview-container-detect" style={{ height: 180, marginBottom: 8, border: '2px solid var(--accent-green)' }}>
+                                <img src={`${API}/api/students/${result.student.roll_no}/image`} alt="DB Match" style={{ objectFit: 'cover', width: '100%', height: '100%' }} />
+                            </div>
+                            <span style={{ fontSize: 13, color: 'var(--text-secondary)', fontWeight: 500 }}>Database Match</span>
+                         </div>
+                      </div>
 
-                  <div className="detection-summary-grid">
-                    <div className="summary-stat-item">
-                      <span className="label">Students Detected</span>
-                      <span className="value">{result.detected_count || '0'}</span>
+                      <div style={{ padding: 16, background: 'var(--bg)', borderRadius: 12, marginBottom: 'auto' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
+                          <span style={{ color: 'var(--text-secondary)' }}>Student Name</span>
+                          <span style={{ fontWeight: 600 }}>{result.student.name}</span>
+                        </div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
+                          <span style={{ color: 'var(--text-secondary)' }}>Roll Number</span>
+                          <span style={{ fontWeight: 600 }}>{result.student.roll_no}</span>
+                        </div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
+                          <span style={{ color: 'var(--text-secondary)' }}>Dept/Sec</span>
+                          <span style={{ fontWeight: 600 }}>{result.student.department} - {result.student.section}</span>
+                        </div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                          <span style={{ color: 'var(--text-secondary)' }}>Violations Count</span>
+                          <span style={{ fontWeight: 600, color: 'var(--accent-red)' }}>{result.student.violations_count || 0}</span>
+                        </div>
+                      </div>
+
+                      <div style={{ marginBottom: 16 }}>
+                        <span className="detect-select-label" style={{ display: 'block', marginBottom: 8 }}>Violation Type</span>
+                        <select 
+                          className="filter-input" 
+                          style={{ width: '100%' }} 
+                          value={violationType} 
+                          onChange={(e) => setViolationType(e.target.value)}
+                        >
+                          <option value="Late Arrival">Late Arrival</option>
+                          <option value="Dress Code">Dress Code</option>
+                          <option value="Bunk">Bunk</option>
+                        </select>
+                      </div>
+
+                      <div style={{ marginBottom: 20 }}>
+                        <span className="detect-select-label" style={{ display: 'block', marginBottom: 8 }}>Remarks</span>
+                        <input 
+                          type="text" 
+                          className="filter-input" 
+                          style={{ width: '100%' }} 
+                          value={remarks} 
+                          onChange={(e) => setRemarks(e.target.value)}
+                          placeholder="e.g. Detected via camera" 
+                        />
+                      </div>
+
+                      <button className="btn-premium btn-primary" onClick={handleConfirm}>
+                        Log Violation for Student
+                      </button>
+                    </>
+                  ) : (
+                    <div className="empty-state-detect" style={{ margin: 'auto' }}>
+                      <div className="empty-state-icon" style={{ background: 'var(--accent-red-soft)', color: 'var(--accent-red)' }}>⚠️</div>
+                      <h3>No Match Identified</h3>
+                      <p style={{ color: 'var(--text-tertiary)', fontSize: 14 }}>
+                        {result.message || result.error || "The face could not be correlated securely to any registered student."}
+                      </p>
                     </div>
-                    <div className="summary-stat-item">
-                      <span className="label">Violations Found</span>
-                      <span className="value" style={{ color: 'var(--accent-red)' }}>{result.violation_count || '0'}</span>
-                    </div>
-                  </div>
+                  )}
 
-                  <div>
-                    <span className="detect-select-label" style={{ display: 'block', marginBottom: 12 }}>Violation Types</span>
-                    <div className="violation-tag-list">
-                      {result.types?.map((t, i) => (
-                        <span key={i} className="violation-tag active">{t}</span>
-                      )) || <span className="violation-tag">None</span>}
-                    </div>
-                  </div>
-
-                  <div style={{ marginTop: 8, padding: 16, background: 'var(--bg)', borderRadius: 12 }}>
-                    <span className="label" style={{ fontSize: 12, color: 'var(--text-secondary)', fontWeight: 500, display: 'block', marginBottom: 8 }}>Identified Absentees</span>
-                    <p style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-primary)' }}>
-                      {result.absentees?.join(', ') || 'No absentees detected'}
-                    </p>
-                  </div>
-
-                  <button className="btn-premium btn-primary" onClick={handleConfirm} style={{ marginTop: 8 }}>
-                    Confirm & Record Violations
-                  </button>
                 </div>
               )}
             </div>

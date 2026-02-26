@@ -56,8 +56,9 @@ class DetectionService:
                 "student": {
                     "roll_no": best_match["roll_no"],
                     "name": best_match["name"],
-                    "department": best_match.get("department"),
-                    "section": best_match.get("section")
+                    "department": best_match.get("department", "CSE"),
+                    "section": best_match.get("section", "A"),
+                    "violations_count": best_match.get("violations_count", 0)
                 },
                 "confidence": confidence,
                 "distance": float(best_distance)

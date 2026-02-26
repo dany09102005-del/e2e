@@ -26,6 +26,11 @@ def match_student():
     
     try:
         result = DetectionService.match_face(str(save_path), dept, section)
+        
+        # Inject the captured filename so the frontend can render it back
+        if type(result) is dict:
+            result["captured_filename"] = filename
+            
         return jsonify(result), 200
     except Exception as e:
         return jsonify({"success": False, "error": str(e)}), 500
