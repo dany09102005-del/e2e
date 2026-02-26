@@ -10,15 +10,11 @@ class StudentService:
         from pathlib import Path
         import os
         
-        # Initialize stats
-        student_data["stats"] = {
-            "total": 0,
-            "types": {
-                "bunk": 0,
-                "late_arrival": 0,
-                "dress_code": 0
-            }
-        }
+        # Initialize stats as flat counts
+        student_data["violations_count"] = 0
+        student_data["late_count"] = 0
+        student_data["bunk_count"] = 0
+        student_data["dress_code_count"] = 0
         
         # Clean and Normalize Required Fields
         roll_no = str(student_data.get("roll_no", "")).strip().upper()

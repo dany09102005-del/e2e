@@ -8,6 +8,7 @@ from routes.violations import violations_bp
 from routes.reports import reports_bp
 from routes.auth import auth_bp
 from routes.detection import detection_bp
+from routes.dashboard import dashboard_bp
 from services.auth_service import AuthService
 
 def create_app():
@@ -32,6 +33,7 @@ def create_app():
     app.register_blueprint(reports_bp, url_prefix="/api/reports")
     app.register_blueprint(auth_bp, url_prefix="/api/auth")
     app.register_blueprint(detection_bp, url_prefix="/api/detection")
+    app.register_blueprint(dashboard_bp, url_prefix="/api/dashboard")
     
     @app.route("/ping")
     def ping():

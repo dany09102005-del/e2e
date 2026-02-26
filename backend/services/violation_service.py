@@ -20,15 +20,26 @@ class ViolationService:
         # Insert violation
         result = db.violations.insert_one(violation_data)
         
-        # Increment student stats
-        stats_key = f"stats.types.{v_type.lower().replace(' ', '_')}"
+        # Map violation type to counter field
+        v_type_lower = v_type.lower()
+        if "late" in v_type_lower:
+            specific_count_field = "late_count"
+        elif "bunk" in v_type_lower:
+            specific_count_field = "bunk_count"
+        elif "dress" in v_type_lower:
+            specific_count_field = "dress_code_count"
+        else:
+            specific_count_field = None  # Generic violation
+        
+        # Build increment dict
+        inc_data = {"violations_count": 1}
+        if specific_count_field:
+            inc_data[specific_count_field] = 1
+
         db.students.update_one(
             {"roll_no": violation_data["student_id"]},
             {
-                "$inc": {
-                    "stats.total": 1,
-                    stats_key: 1
-                },
+                "$inc": inc_data,
                 "$set": {"updated_at": datetime.utcnow()}
             }
         )
@@ -50,15 +61,26 @@ class ViolationService:
         # Delete violation
         db.violations.delete_one({"_id": ObjectId(violation_id)})
         
-        # Decrement student stats
-        stats_key = f"stats.types.{v_type.lower().replace(' ', '_')}"
+        # Map violation type to counter field
+        v_type_lower = v_type.lower()
+        if "late" in v_type_lower:
+            specific_count_field = "late_count"
+        elif "bunk" in v_type_lower:
+            specific_count_field = "bunk_count"
+        elif "dress" in v_type_lower:
+            specific_count_field = "dress_code_count"
+        else:
+            specific_count_field = None  # Generic violation
+        
+        # Build decrement dict
+        inc_data = {"violations_count": -1}
+        if specific_count_field:
+            inc_data[specific_count_field] = -1
+
         db.students.update_one(
             {"roll_no": student_id},
             {
-                "$inc": {
-                    "stats.total": -1,
-                    stats_key: -1
-                },
+                "$inc": inc_data,
                 "$set": {"updated_at": datetime.utcnow()}
             }
         )

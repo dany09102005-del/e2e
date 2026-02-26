@@ -337,40 +337,73 @@ function Header({ dark, onToggleTheme, onAction }) {
 
 // ─────────── DASHBOARD ───────────
 function Dashboard() {
+  const [dashboardData, setDashboardData] = useState(null)
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    // Fetch dynamic KPIs
+    apiClient.get('/api/dashboard/kpis')
+      .then(res => {
+        setDashboardData(res.data.data)
+        setLoading(false)
+      })
+      .catch(err => {
+        console.error("Error fetching dashboard kpis", err)
+        setLoading(false)
+      })
+  }, [])
+
+  if (loading) {
+    return (
+      <div className="page-content" style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100%' }}>
+        <div className="spinner" style={{ width: 40, height: 40, border: '4px solid var(--accent-blue)', borderTopColor: 'transparent', borderRadius: '50%', animation: 'spin 1s linear infinite' }}></div>
+      </div>
+    )
+  }
+
+  // Ensure safe fallback if API fails
+  const safeData = dashboardData || {
+    total_students: 0,
+    total_violations: 0,
+    today_activity: 0,
+    monthly_chart: { labels: [], data: [] },
+    most_active_location: { name: "N/A", count: 0 }
+  }
+
   // KPI data
   const kpis = [
     {
-      title: 'Students Monitoring',
-      value: '1,284',
-      subtext: 'Active this semester',
+      title: 'Students Monitored',
+      value: safeData.total_students.toLocaleString(),
+      subtext: 'Total registered profiles',
       icon: Icons.users
     },
     {
       title: 'Total Violations',
-      value: '248',
-      subtext: 'Current semester',
+      value: safeData.total_violations.toLocaleString(),
+      subtext: 'Accumulated record',
       icon: Icons.alert
     },
     {
       title: "Today's Activity",
-      value: '12',
-      subtext: 'Compared to yesterday: +2',
+      value: safeData.today_activity.toLocaleString(),
+      subtext: 'Incidents today',
       icon: Icons.activity
     },
     {
       title: 'Most Active Location',
-      value: 'Central Block',
-      subtext: '42 incidents this month',
+      value: safeData.most_active_location.name,
+      subtext: `${safeData.most_active_location.count} total incidents`,
       icon: Icons.mapPin
     }
   ];
 
   // Line chart – Violations Trend
   const monthlyData = {
-    labels: ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun'],
+    labels: safeData.monthly_chart.labels,
     datasets: [{
       label: 'Monthly Violations',
-      data: [65, 59, 80, 81, 56, 40],
+      data: safeData.monthly_chart.data,
       fill: true,
       borderColor: '#007AFF',
       backgroundColor: 'rgba(0, 122, 255, 0.04)',
@@ -668,10 +701,10 @@ function StudentsPage({ students, token, onRefresh, onStudentClick, showRegister
   // Filter students by active dropdown selections
   const filteredStudents = students.filter(s => {
     const roll = (s.roll_no || '').toUpperCase()
-    
+
     // Program Filter: B.Tech must have 'BQ' in roll number
     const matchesProgram = !filter.program || filter.program !== 'B.Tech' || roll.includes('BQ')
-    
+
     // Batch Filter Logic
     let matchesBatch = true
     if (filter.batch) {
@@ -688,16 +721,20 @@ function StudentsPage({ students, token, onRefresh, onStudentClick, showRegister
 
     const matchesDept = !filter.dept || (s.department || '').toUpperCase() === filter.dept.toUpperCase()
     const matchesSection = !filter.section || (s.section || '').toUpperCase() === filter.section.toUpperCase()
-    
+
     return matchesProgram && matchesBatch && matchesDept && matchesSection
   })
 
   // Derived stats for summary
+  const totalLate = filteredStudents.reduce((sum, s) => sum + (s.late_count || 0), 0)
+  const totalDress = filteredStudents.reduce((sum, s) => sum + (s.dress_code_count || 0), 0)
+  const totalBunk = filteredStudents.reduce((sum, s) => sum + (s.bunk_count || 0), 0)
+
   const summaryStats = [
     { label: 'Total Students', value: filteredStudents.length || '0', icon: '👥', color: 'blue' },
-    { label: 'Late Arrivals', value: '14', icon: '⏰', color: 'orange' },
-    { label: 'Dress Code', value: '08', icon: '👔', color: 'purple' },
-    { label: 'Bunk', value: '03', icon: '🏃', color: 'red' },
+    { label: 'Late Arrivals', value: totalLate.toString().padStart(2, '0'), icon: '⏰', color: 'orange' },
+    { label: 'Dress Code', value: totalDress.toString().padStart(2, '0'), icon: '👔', color: 'purple' },
+    { label: 'Bunk', value: totalBunk.toString().padStart(2, '0'), icon: '🏃', color: 'red' },
   ]
 
   const getStatus = (count) => {
@@ -783,7 +820,8 @@ function StudentsPage({ students, token, onRefresh, onStudentClick, showRegister
                 </thead>
                 <tbody>
                   {filteredStudents.map((s, i) => {
-                    const status = getStatus(s.violation_count || i % 3)
+                    const actualViolations = s.violations_count || 0
+                    const status = getStatus(actualViolations)
                     return (
                       <tr key={i} onClick={() => onStudentClick && onStudentClick(s)}>
                         <td>
@@ -797,7 +835,7 @@ function StudentsPage({ students, token, onRefresh, onStudentClick, showRegister
                         <td style={{ fontWeight: 600 }}>{s.roll_no}</td>
                         <td>{s.name}</td>
                         <td>{s.section || 'A'}</td>
-                        <td style={{ textAlign: 'center', fontWeight: 600 }}>{s.violation_count || i % 3}</td>
+                        <td style={{ textAlign: 'center', fontWeight: 600 }}>{actualViolations}</td>
                         <td><span className={`status-pill ${status.class}`}>{status.label}</span></td>
                         <td style={{ textAlign: 'center' }}>
                           <button className="icon-btn">{Icons.shield}</button>
