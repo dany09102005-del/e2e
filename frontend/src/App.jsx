@@ -1599,6 +1599,9 @@ function ViolationsPage({ violations }) {
 // ─────────── REPORTS PAGE (SaaS ANALYTICS) ───────────
 // ─────────── EVENT-DRIVEN REPORTS PAGE (v5.3) ───────────
 function ReportsPage({ violations }) {
+  const [isUnlocked, setIsUnlocked] = useState(false)
+  if (!isUnlocked) return <PinLockOverlay onUnlock={() => setIsUnlocked(true)} title="Reports Security" description="Access to analytics reports is restricted." />
+
   const [reportType, setReportType] = useState('By Violation Type');
   const [dateRange, setDateRange] = useState('Last 30 Days');
   const [isGenerated, setIsGenerated] = useState(false);
@@ -1808,6 +1811,100 @@ function ReportsPage({ violations }) {
     </div>
   );
 }
+// ─────────── PIN LOCK COMPONENT ───────────
+const PinLockOverlay = ({ onUnlock, title = "Enter PIN", description = "Access restricted." }) => {
+  const [enteredPin, setEnteredPin] = useState('')
+  const [pinError, setPinError] = useState(false)
+
+  const handlePinInput = (num) => {
+    if (enteredPin.length < 4) {
+      const newPin = enteredPin + num
+      setEnteredPin(newPin)
+      if (newPin.length === 4) {
+        if (newPin === '7781') {
+          onUnlock()
+        } else {
+          setPinError(true)
+          setTimeout(() => {
+            setPinError(false)
+            setEnteredPin('')
+          }, 600)
+        }
+      }
+    }
+  }
+
+  const handleBackspace = () => setEnteredPin(prev => prev.slice(0, -1))
+
+  return (
+    <div className="page-content" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '80vh', animation: 'fadeIn 0.4s ease' }}>
+      <div style={{
+        background: 'var(--surface)', padding: '40px', borderRadius: 24, border: '1px solid var(--border)',
+        boxShadow: 'var(--shadow-lg)', width: '100%', maxWidth: 360, textAlign: 'center',
+        transform: pinError ? 'translateX(0)' : 'none',
+        animation: pinError ? 'shake 0.4s ease-in-out' : 'none'
+      }}>
+        <div style={{
+          width: 60, height: 60, borderRadius: 18, background: 'rgba(0,122,255,0.1)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#007AFF',
+          margin: '0 auto 24px'
+        }}>
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" style={{ width: 30, height: 30 }}>
+            <path fillRule="evenodd" d="M12 1.5a5.25 5.25 0 00-5.25 5.25v3a3 3 0 00-3 3v6.75a3 3 0 003 3h10.5a3 3 0 003-3v-6.75a3 3 0 00-3-3v-3c0-2.9-2.35-5.25-5.25-5.25zm3.75 8.25v-3a3.75 3.75 0 10-7.5 0v3h7.5z" clipRule="evenodd" />
+          </svg>
+        </div>
+        <h2 style={{ fontSize: 22, fontWeight: 700, color: 'var(--text-primary)', margin: '0 0 8px' }}>{title}</h2>
+        <p style={{ fontSize: 14, color: 'var(--text-secondary)', marginBottom: 32 }}>{description}</p>
+
+        {/* Dots */}
+        <div style={{ display: 'flex', justifyContent: 'center', gap: 16, marginBottom: 40 }}>
+          {[0, 1, 2, 3].map(i => (
+            <div key={i} style={{
+              width: 14, height: 14, borderRadius: '50%',
+              background: i < enteredPin.length ? (pinError ? '#FF3B30' : '#007AFF') : 'var(--border)',
+              transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
+              transform: i < enteredPin.length ? 'scale(1.2)' : 'scale(1)'
+            }} />
+          ))}
+        </div>
+
+        {/* Keypad */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12 }}>
+          {[1, 2, 3, 4, 5, 6, 7, 8, 9].map(num => (
+            <button key={num} onClick={() => handlePinInput(num.toString())} className="btn-pin">
+              {num}
+            </button>
+          ))}
+          <div />
+          <button onClick={() => handlePinInput('0')} className="btn-pin">0</button>
+          <button onClick={handleBackspace} className="btn-pin" style={{ color: 'var(--text-secondary)' }}>
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" style={{ width: 22, height: 22 }}>
+              <path fillRule="evenodd" d="M2.515 10.674a1.875 1.875 0 000 2.652L8.89 19.7c.352.351.829.549 1.326.549H19.5a3 3 0 003-3V6.75a3 3 0 00-3-3h-9.284c-.497 0-.974.198-1.326.55l-6.375 6.374zM12.53 9.22a.75.75 0 10-1.06 1.06L13.19 12l-1.72 1.72a.75.75 0 101.06 1.06l1.72-1.72 1.72 1.72a.75.75 0 101.06-1.06L15.31 12l1.72-1.72a.75.75 0 10-1.06-1.06L14.25 10.94l-1.72-1.72z" clipRule="evenodd" />
+            </svg>
+          </button>
+        </div>
+
+        <style>{`
+          .btn-pin {
+            height: 64px; border-radius: 16px; border: 1px solid var(--border);
+            background: var(--bg); color: var(--text-primary);
+            font-size: 20px; font-weight: 600; cursor: pointer;
+            transition: all 0.2s; display: flex; align-items: center; justify-content: center;
+            outline: none;
+          }
+          .btn-pin:hover { background: var(--surface); transform: translateY(-2px); border-color: #007AFF; }
+          .btn-pin:active { transform: translateY(0) scale(0.95); background: rgba(0,122,255,0.05); }
+          @keyframes shake {
+            0%, 100% { transform: translateX(0); }
+            20%, 60% { transform: translateX(-8px); }
+            40%, 80% { transform: translateX(8px); }
+          }
+        `}</style>
+      </div>
+    </div>
+  )
+}
+
 
 // ─────────── SETTINGS SUB-COMPONENTS ───────────
 const SettingsToggle = ({ checked, onChange, label, description }) => (
@@ -1906,6 +2003,8 @@ const SettingsInput = ({ label, description, value, onChange, type = 'text', pla
 
 // ─────────── SETTINGS PAGE ───────────
 function SettingsPage() {
+  const [isUnlocked, setIsUnlocked] = useState(false)
+  
   const defaultSettings = {
     institutionName: 'KL University',
     institutionCode: 'KLU-2024',
@@ -1937,9 +2036,6 @@ function SettingsPage() {
   })
   const [saved, setSaved] = useState(false)
   const [showResetConfirm, setShowResetConfirm] = useState(false)
-  const [isUnlocked, setIsUnlocked] = useState(false)
-  const [enteredPin, setEnteredPin] = useState('')
-  const [pinError, setPinError] = useState(false)
   const [hasChanges, setHasChanges] = useState(false)
 
   const update = (key, value) => {
@@ -1955,95 +2051,7 @@ function SettingsPage() {
     setTimeout(() => setSaved(false), 2500)
   }
 
-  const handlePinInput = (num) => {
-    if (enteredPin.length < 4) {
-      const newPin = enteredPin + num
-      setEnteredPin(newPin)
-      if (newPin.length === 4) {
-        if (newPin === '7781') {
-          setIsUnlocked(true)
-        } else {
-          setPinError(true)
-          setTimeout(() => {
-            setPinError(false)
-            setEnteredPin('')
-          }, 600)
-        }
-      }
-    }
-  }
-
-  const handleBackspace = () => setEnteredPin(prev => prev.slice(0, -1))
-
-  if (!isUnlocked) {
-    return (
-      <div className="page-content" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '80vh', animation: 'fadeIn 0.4s ease' }}>
-        <div style={{
-          background: 'var(--surface)', padding: '40px', borderRadius: 24, border: '1px solid var(--border)',
-          boxShadow: 'var(--shadow-lg)', width: '100%', maxWidth: 360, textAlign: 'center',
-          transform: pinError ? 'translateX(0)' : 'none',
-          animation: pinError ? 'shake 0.4s ease-in-out' : 'none'
-        }}>
-          <div style={{
-            width: 60, height: 60, borderRadius: 18, background: 'rgba(0,122,255,0.1)',
-            display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#007AFF',
-            margin: '0 auto 24px'
-          }}>
-            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" style={{ width: 30, height: 30 }}>
-              <path fillRule="evenodd" d="M12 1.5a5.25 5.25 0 00-5.25 5.25v3a3 3 0 00-3 3v6.75a3 3 0 003 3h10.5a3 3 0 003-3v-6.75a3 3 0 00-3-3v-3c0-2.9-2.35-5.25-5.25-5.25zm3.75 8.25v-3a3.75 3.75 0 10-7.5 0v3h7.5z" clipRule="evenodd" />
-            </svg>
-          </div>
-          <h2 style={{ fontSize: 22, fontWeight: 700, color: 'var(--text-primary)', margin: '0 0 8px' }}>Enter PIN</h2>
-          <p style={{ fontSize: 14, color: 'var(--text-secondary)', marginBottom: 32 }}>Access to Settings is restricted.</p>
-
-          {/* Dots */}
-          <div style={{ display: 'flex', justifyContent: 'center', gap: 16, marginBottom: 40 }}>
-            {[0, 1, 2, 3].map(i => (
-              <div key={i} style={{
-                width: 14, height: 14, borderRadius: '50%',
-                background: i < enteredPin.length ? (pinError ? '#FF3B30' : '#007AFF') : 'var(--border)',
-                transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
-                transform: i < enteredPin.length ? 'scale(1.2)' : 'scale(1)'
-              }} />
-            ))}
-          </div>
-
-          {/* Keypad */}
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12 }}>
-            {[1, 2, 3, 4, 5, 6, 7, 8, 9].map(num => (
-              <button key={num} onClick={() => handlePinInput(num.toString())} className="btn-pin">
-                {num}
-              </button>
-            ))}
-            <div />
-            <button onClick={() => handlePinInput('0')} className="btn-pin">0</button>
-            <button onClick={handleBackspace} className="btn-pin" style={{ color: 'var(--text-secondary)' }}>
-              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" style={{ width: 22, height: 22 }}>
-                <path fillRule="evenodd" d="M2.515 10.674a1.875 1.875 0 000 2.652L8.89 19.7c.352.351.829.549 1.326.549H19.5a3 3 0 003-3V6.75a3 3 0 00-3-3h-9.284c-.497 0-.974.198-1.326.55l-6.375 6.374zM12.53 9.22a.75.75 0 10-1.06 1.06L13.19 12l-1.72 1.72a.75.75 0 101.06 1.06l1.72-1.72 1.72 1.72a.75.75 0 101.06-1.06L15.31 12l1.72-1.72a.75.75 0 10-1.06-1.06L14.25 10.94l-1.72-1.72z" clipRule="evenodd" />
-              </svg>
-            </button>
-          </div>
-
-          <style>{`
-            .btn-pin {
-              height: 64px; border-radius: 16px; border: 1px solid var(--border);
-              background: var(--bg); color: var(--text-primary);
-              font-size: 20px; font-weight: 600; cursor: pointer;
-              transition: all 0.2s; display: flex; align-items: center; justify-content: center;
-              outline: none;
-            }
-            .btn-pin:hover { background: var(--surface); transform: translateY(-2px); border-color: #007AFF; }
-            .btn-pin:active { transform: translateY(0) scale(0.95); background: rgba(0,122,255,0.05); }
-            @keyframes shake {
-              0%, 100% { transform: translateX(0); }
-              20%, 60% { transform: translateX(-8px); }
-              40%, 80% { transform: translateX(8px); }
-            }
-          `}</style>
-        </div>
-      </div>
-    )
-  }
+  if (!isUnlocked) return <PinLockOverlay onUnlock={() => setIsUnlocked(true)} title="Settings Security" description="Access to system configuration is restricted." />
 
   return (
     <div className="page-content" style={{ animation: 'fadeIn 0.6s ease-out', maxWidth: 720, margin: '0 auto', paddingBottom: 100 }}>
