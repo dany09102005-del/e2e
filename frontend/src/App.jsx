@@ -1371,7 +1371,7 @@ function DetectPage({ onDetect }) {
   )
 }
 
-// ─────────── VIOLATIONS PAGE ───────────
+// ─────────── VIOLATIONS PAGE ── ─────────
 function ViolationsPage({ violations }) {
   const [filterType, setFilterType] = useState('All');
   const [filterLocation, setFilterLocation] = useState('All');
@@ -1494,7 +1494,7 @@ function ViolationsPage({ violations }) {
         <table className="data-table">
           <thead>
             <tr>
-              <th style={{ width: 60 }}>Photo</th>
+              <th style={{  width: 60 }}>Photo</th>
               <th>Roll Number</th>
               <th>Student Name</th>
               <th>Violation</th>
