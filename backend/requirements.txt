@@ -1,14 +1,32 @@
+# flask
+# pymongo
+# flask-cors
+# python-dotenv
+# flask-jwt-extended
+# bcrypt
+# numpy
+# # opencv-python
+# PyJWT
+# werkzeug
+# # dlib
+# face_recognition
+# imutils
+# Pillow
 flask
-pymongo
 flask-cors
-python-dotenv
 flask-jwt-extended
+python-dotenv
+gunicorn
+pymongo
 bcrypt
 numpy
-opencv-python
+# opencv-python
 PyJWT
 werkzeug
-dlib
+# dlib
 face_recognition
 imutils
 Pillow
+
+opencv-python-headless
+dlib-bin
